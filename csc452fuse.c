@@ -97,7 +97,6 @@ int is_dir(const char *path)
         if(*temp == '/')
             count++;
     }
-    FILE* fp = fopen("/home/justin/errors","w");
     fprintf(fp, "%d", count);
     fclose(fp);
     return count >= 1;
