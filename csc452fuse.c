@@ -97,10 +97,42 @@ int is_dir(const char *path)
         if(*temp == '/')
             count++;
     }
-    fprintf(fp, "%d", count);
-    fclose(fp);
+//    fprintf(fp, "%d", count);
+//    fclose(fp);
     return count >= 1;
 }
+int is_file(const char *path)
+{
+    return 0;
+}
+
+
+int dir_exists(const char *path) 
+{
+    FILE *fp = fopen(".disk", "r");
+    if(fp == NULL)
+        return -1;
+    csc452_root_directory root;
+    fread(&root, 512, 1, fp);
+    
+    int i;
+    for(i=0;i<root.nDirectories;i++)
+    {
+        char *temp = path;
+        char *token = strtok(temp, "/");
+        if(strcmp(token, path))
+            return 1;
+    temp = NULL;
+    free(temp);
+    }
+    fclose(fp);
+
+    fp = NULL;
+    free(fp);
+
+    return 0;
+}
+
 
 /*
  * Called whenever the system wants to know the file attributes, including
@@ -118,13 +150,14 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 	} else  {
 		
 		//If the path does exist and is a directory:
-        if (is_dir(path)) 
+        if (is_dir(path) && dir_exists(path)) 
         {
+
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
         }
 		//If the path does exist and is a file:
-        else if(!is_dir(path))
+        else if(is_file(path))
         {
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
@@ -135,7 +168,6 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
     		res = -ENOENT;
 
 	}
-
 	return res;
 }
 
@@ -177,14 +209,34 @@ static int csc452_mkdir(const char *path, mode_t mode)
 {
 	(void) path;
 	(void) mode;
-   
+  
+    //wait..... 
     csc452_directory_entry *dir = malloc(sizeof(csc452_directory_entry));
-    FILE *disk = fopen(".disk", "w");
+    FILE *disk = fopen(".disk", "r");
+    csc452_root_directory root;
+    fread(&root, 512, 1, disk);
+    fclose(disk);
+
+    //As of right now this is insuffiecient
+    //I will need to create a 512b block as well in .disk
+    //for my directory to store files....
+    //Also I'm missing a bunch of error checks
     if(disk != NULL)
     {
-        fwrite(dir, sizeof(csc452_directory_entry), 1, disk);
+        if(dir_exists(path))
+            return -EEXIST;
+
+        
+        dir->nFiles = 0;
+        fclose(disk);
+        strcpy(root.directories[++root.nDirectories].dname, path);
+        root.directories[root.nDirectories].nStartBlock = 512 * (root.nDirectories + 1);
+        disk = fopen(".disk", "w");
+        fwrite(&root, 512, 1, disk);
         fclose(disk);
     }
+    disk = NULL;
+    free(disk);
    	return 0;
 }
 

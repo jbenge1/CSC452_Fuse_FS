@@ -18,3 +18,4 @@ Cristal:
 
     csc452_open
 
+*Note: Be sure to "format" your disk after each pull
