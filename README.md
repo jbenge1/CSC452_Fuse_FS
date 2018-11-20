@@ -19,3 +19,5 @@ Cristal:
     csc452_open
 
 *Note: Be sure to "format" your disk after each pull
+    
+    dd bs=1K count=5K if=/dev/zero of=.disk
