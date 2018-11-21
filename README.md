@@ -11,9 +11,10 @@ Justin:
 
 
 Cristal:
-
+    csc452_readdir 
+    
     csc452_write
-
+    
     csc452_read
 
     csc452_open
