@@ -11,13 +11,14 @@ Justin:
 
 
 Cristal:
+
     csc452_readdir 
     
     csc452_write
     
     csc452_read
 
-    csc452_open
+    csc452_unlink
 
 *Note: Be sure to "format" your disk after each pull
     
