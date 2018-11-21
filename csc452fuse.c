@@ -32,6 +32,12 @@
 //How many files can there be in one directory?
 #define MAX_FILES_IN_DIR (BLOCK_SIZE - sizeof(int)) / ((MAX_FILENAME + 1) + (MAX_EXTENSION + 1) + sizeof(size_t) + sizeof(long))
 
+//The file representing the disk
+#define DISK_FILE ".disk"
+
+//Errors 
+#define DISK_NFE {fprintf(stderr,"Disk File not found\n"); exit(1);}
+#define DISK_READ_ER {fprintf(stderr,"Error when reading from disk\n"); exit(1);}
 //The attribute packed means to not align these things
 struct csc452_directory_entry
 {
@@ -140,6 +146,73 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 	return res;
 }
 
+/*
+ * This function is passed a string that contains a path
+ * and pointers to strings where the different parts of 
+ * the path will be stored. This function assumes that
+ * the path provided is in the form /directory/file.ext.
+ * This may be called with only /directory, in this case only
+ * dir_name will be set
+ */
+void extractFromPath(char path[],char *file_name, char *file_ext,char *dir_name){
+	//path will have form /directory/file.ext
+	char *nav=path;
+	char *writeOn;//this will be where I will write
+	writeOn=dir_name;
+	nav++;//skip the first slash
+	//gets the directory
+	while(*nav!='\0'){
+		if(*nav!='/'){
+			*writeOn=*nav;
+			nav++;
+			writeOn++;
+		}else{
+			break;
+		}
+	}
+	//add null char and start extracting file next
+	*writeOn='\0';
+	//if the path has a file name too, extract it and its ext
+	if(*nav!='\0'){
+		nav++;//skip next back slash
+		writeOn=file_name;
+		while(*nav!='\0'){
+			if(*nav!='.'){
+				*writeOn=*nav;
+				nav++;
+				writeOn++;
+			}else{
+				break;
+			}
+		}
+		//add null char and start extracting file name
+		*writeOn='\0';
+		nav++;//skip period
+		writeOn=file_ext;
+		while(*nav!='\0'){
+			*writeOn=*nav;
+			nav++;
+			writeOn++;
+		}
+		*writeOn='\0';
+	}
+	return;
+}
+
+/*	This function will read from a file representing disk
+ *	and load from it the root structure into a struct pointed by
+ *	the input pointers
+ */
+ void loadRoot(csc452_root_directory *root){
+	 FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 fseek(fp,0,SEEK_SET);
+	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+	 int ret =fread(root, BLOCK_SIZE, 1, fp);
+	 if(ret!=1) DISK_READ_ER;
+	 return;
+ }
 
 /*
  * Called whenever the contents of a directory are desired. Could be from an 'ls'
@@ -148,23 +221,53 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
-
-	//Since we're building with -Wall (all warnings reported) we need
-	//to "use" every parameter, so let's just cast them to void to
 	//satisfy the compiler
 	(void) offset;
 	(void) fi;
-    
-	//A directory holds two entries, one that represents itself (.) 
-	//and one that represents the directory above us (..)
+    //There will be a root structure that contains 
+	//info to directory structures that contain files structs
+	//each directory can be identified by name as well as the files
+	char file_name[MAX_FILENAME+1]="\0";
+	char file_ext[MAX_EXTENSION+1]="\0";
+	char dir_name[MAX_FILENAME+1]="\0";//assume dir name max is same as file FOR NOW
+	
+	//extract these from path
+	extractFromPath(path,&file_name[0],&file_ext[0],&dir_name[0]);
+	
+	//*****ensure path is a directory*****
+	if(path[0]!='/' || file_name[0]!='\0'){//if a file was process then, it is not a dir
+		return -ENOENT;
+	}
+	/*Does root count as a directory??
+	A directory holds two entries, one that represents itself (.)?? 
+	and one that represents the directory above us (..)?? */
+
+	/*****Load contents from the root*****/
+	/* I need the root to either get all of its children or 
+	   so I can add them, or I need it so I can search for
+	   the target directory in its children
+	 */
+	csc452_root_directory root;
+	loadRoot(&root);
 	if (strcmp(path, "/") != 0) {
-		filler(buf, ".", NULL,0);
-		filler(buf, "..", NULL, 0);
+		//this is not the root so it must be a directory in the root 
+		/*filler(buf, ".", NULL,0);
+		filler(buf, "..", NULL, 0);*/
+		//filler format 
+		//filler(void *buff, char *name, struct stat *stbuff,
+		//off_t offf)
 	}
 	else {
-		// All we have _right now_ is root (/), so any other path must
-		// not exist. 
-		return -ENOENT;
+		//For the root, all of its child directories should be added
+		//there is an array of directory structs inside the root struct
+		int i=0;
+		int numOfDirs=root.nDirectories;
+		for(i=0;i<root.numOfDirs;i++){
+			struct csc452_directory currDir=root.directories[i];
+			//add all directories to the buff
+			filler(buf, currDir.dname,NULL, 0);//Can I assume all directories are in seq in array or should i search among all ????
+		}
+			
 	}
 
 	return 0;
