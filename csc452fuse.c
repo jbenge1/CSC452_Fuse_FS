@@ -36,8 +36,8 @@
 #define DISK_FILE ".disk"
 
 //Errors 
-#define DISK_NFE {fprintf(stderr,"Disk File not found\n"); exit(1);}
-#define DISK_READ_ER {fprintf(stderr,"Error when reading from disk\n"); exit(1);}
+#define DISK_NFE {fprintf(stderr,"Disk File not found\n"); return(1);}
+#define DISK_READ_ER {fprintf(stderr,"Error when reading from disk\n"); return(1);}
 //The attribute packed means to not align these things
 struct csc452_directory_entry
 {
@@ -185,7 +185,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
  * This may be called with only /directory, in this case only
  * dir_name will be set
  */
-void extractFromPath(char path[],char *file_name, char *file_ext,char *dir_name){
+void extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_name){
 	//path will have form /directory/file.ext
 	char *nav=path;
 	char *writeOn;//this will be where I will write
@@ -234,17 +234,74 @@ void extractFromPath(char path[],char *file_name, char *file_ext,char *dir_name)
  *	and load from it the root structure into a struct pointed by
  *	the input pointers
  */
- void loadRoot(csc452_root_directory *root){
+int loadRoot(csc452_root_directory *root){
 	 FILE* fp=fopen(DISK_FILE, "r");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 fseek(fp,0,SEEK_SET);
 	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
 	 int ret =fread(root, BLOCK_SIZE, 1, fp);
+	 fclose(fp);
 	 if(ret!=1) DISK_READ_ER;
-	 return;
+	 return 0;
  }
 
+/*	This function will take in a pointer to a root struct and a string with a directory
+ *	name and search in the root directories for this directory, if it is not found it 
+ * 	will return -1 and if found it return a a number that represents where it is in disk
+ */
+long findDirectory(csc452_root_directory *root, char name[]){
+	int i;
+	int numDirs=root->nDirectories;
+	for(i=0;i<numDirs;i++){
+		if(!strcmp(root->directories[i].dname, name)){//strcmp returns zero if equal
+			return root->directories[i].nStartBlock;
+		}
+	}
+	return (long)(-1);
+}
+
+/*	This function will receive a pointer to a directory struct and a long that
+ *	holds its location in .disk and then it will load the dir from .disk into the struct
+ */
+int loadDir(csc452_directory_entry *dir, long location){
+	 FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,inFileLoc,SEEK_SET);
+	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+	 int ret =fread(dir, BLOCK_SIZE, 1, fp);
+	 fclose(fp);
+	 if(ret!=1) DISK_READ_ER;
+	 return 0;
+ }
+/* This function will take in two strings one with a file name and one with an extension
+ * and concat them with a period in between into a third string passed with pointer
+ * This function assumes the string where the result will be stored has enough memory allocated
+ * This function returns the number of characters loaded into fullName
+ */
+void getFullFileName(char *fileName, char *extension, char *fullName){
+	char *source=fileName;
+	char *destination=fullName;
+	while(*source!='\0'){
+		*destination=*source;
+		source++;
+		destination++;
+	}
+	//add period
+	*destination='.';
+	destination++;
+	//add extension
+	source=extension;
+	while(*source!='\0'){
+		*destination=*source;
+		source++;
+		destination++;
+
+	}
+	return;
+}
 /*
  * Called whenever the contents of a directory are desired. Could be from an 'ls'
  * or could even be when a user hits TAB to do autocompletion
@@ -266,36 +323,49 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	extractFromPath(path,&file_name[0],&file_ext[0],&dir_name[0]);
 	
 	//*****ensure path is a directory*****
-	if(path[0]!='/' || file_name[0]!='\0'){//if a file was process then, it is not a dir
+	if(path[0]!='/' || file_name[0]!='\0'){//if a file was processed then, it is not a dir
 		return -ENOENT;
 	}
-	/*Does root count as a directory??
-	A directory holds two entries, one that represents itself (.)?? 
-	and one that represents the directory above us (..)?? */
-
 	/*****Load contents from the root*****/
 	/* I need the root to either get all of its children or 
 	   so I can add them, or I need it so I can search for
 	   the target directory in its children
 	 */
 	csc452_root_directory root;
-	loadRoot(&root);
+	int ret=loadRoot(&root);
+	if(ret) return -EBADF; //file handle invalid
 	if (strcmp(path, "/") != 0) {
 		//this is not the root so it must be a directory in the root 
 		/*filler(buf, ".", NULL,0);
 		filler(buf, "..", NULL, 0);*/
 		//filler format 
-		//filler(void *buff, char *name, struct stat *stbuff,
-		//off_t offf)
+		//filler(void *buff, char *name, struct stat *stbuff,off_t offf)
+		//list all files in this directory find this directory in the root
+		long location=findDirectory(&root, dir_name);
+		if (location==-1)return -ENOENT;
+		//load the directory
+		csc452_directory_entry thisDir;
+		ret=loadDir(&thisDir, location);
+		if(ret) return -EBADF;
+		//get all files from disk struct
+		int i,numFiles=thisDir.nFiles;
+		
+		for(i=0; i<numFiles;i++){
+			//assume within a directory are all next to each other and thay nfile is updated to current num of files
+			char fullName[MAX_FILENAME+MAX_EXTENSION+2];
+			getFullFileName(thisDir.files[i].fname,thisDir.files[i].fext,&fullName[0]);
+			filler(buf, fullName, NULL, 0);
+		}
 	}
 	else {
 		//For the root, all of its child directories should be added
 		//there is an array of directory structs inside the root struct
 		int i=0;
 		int numOfDirs=root.nDirectories;
-		for(i=0;i<root.numOfDirs;i++){
+		for(i=0;i<numOfDirs;i++){
 			struct csc452_directory currDir=root.directories[i];
 			//add all directories to the buff
+			//assume all valid directories exists sequentially in array
 			filler(buf, currDir.dname,NULL, 0);//Can I assume all directories are in seq in array or should i search among all ????
 		}
 			
