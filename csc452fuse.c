@@ -459,12 +459,15 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
  * There is an assumption that all valid files are
  * adjacent to each other (no invalid file in between.
  */
-long findFile(csc452_directory_entry *directory, char fname[], char fext[], size_t *fsize){
+long findFile(csc452_directory_entry *directory, char fname[], char fext[], size_t *fsize,int write, size_t newSize){
 	int i;
 	int numFiles=directory->nFiles;
 	for(i=0;i<numFiles;i++){
 		if(!strcmp(directory->files[i].fname, fname) && !strcmp(directory->files[i].fext,fext)){//strcmp returns zero if equal
-			*fsize=directory->files[i].fsize;
+			*fsize=directory->files[i].fsize;//pass old size
+			if(write){
+				directory->files[i].fsize=newSize;
+			}
 			return directory->files[i].nStartBlock;
 		}
 	}
@@ -488,15 +491,15 @@ int loadFile(csc452_disk_block *block, long location){
 	 if(ret!=1) DISK_READ_ER;
 	 return 0;
  }
-/*
- * Read size bytes from file into buf starting from offset
- *
+ /*
+ * This function will determine if a path is valid 
+ * and if valid it will determine if exists. It will return 
+ * an error code if there was an issue with the path or 0 if the path was good,
+ * and if good it initialized the fields pointed by the passed pointers
+ * to the file's location and size
  */
-static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
-			  struct fuse_file_info *fi)
-{
-	(void) fi;
-	/******    check to make sure path exists    *************/
+int fileDoesntExists(const char *path, long *fileLoc, size_t *fileSize,int onWrite, size_t newSize){
+	//check if the format is good
 	char file_name[MAX_FILENAME+1]="\0";
 	char file_ext[MAX_EXTENSION+1]="\0";
 	char dir_name[MAX_FILENAME+1]="\0";//assume dir name max is same as file FOR NOW
@@ -506,11 +509,7 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 	if(invalid) return -ENOENT;//path was not valid due to length of names
 	if(file_name=='\0'){//if no file was read then it would the root or a directory so they cant be read
 		return -EISDIR;
-	} 	
-	//check that size is > 0 ???
-	if(size<=0) return 0;
-	/******** check that offset is <= to the file size ********/
-	
+	}
 	// Need to determine if file actually exists
 	csc452_root_directory root;
 	int ret=loadRoot(&root);
@@ -523,21 +522,38 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 	ret=loadDir(&thisDir, location); 
 	if(ret) return -EIO;//problem reading from .disk
 	//search for file in directory
+	*fileLoc=findFile(&thisDir, file_name,file_ext,fileSize, onWrite, newSize);
+	if(*fileLoc==-1) return -ENOENT; //this file was not found 
+	//return true
+	return 0;
+}
+/*
+ * Read size bytes from file into buf starting from offset
+ *
+ */
+static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
+			  struct fuse_file_info *fi)
+{
+	(void) fi;
+	/******    check to make sure path exists    *************/
 	size_t fileSize;
-	long fileLoc=findFile(&thisDir, file_name,file_ext,&fileSize);
-	if(fileLoc==-1) return -ENOENT; //this file was not found 
-	//check offset
-	if(offset>(fileSize+fileLoc*BLOCK_SIZE)){
-		//???should I try to read anything after the end of file?
+	long fileLoc;
+	int doesnt=fileDoesntExists(path, &fileLoc, &fileSize,0,0);
+	if(doesnt){//anything other than 0 is true in c
+		return doesnt;
+	}
+	//check that size is > 0 ???
+	if(size<=0) return 0;
+	/******** check that offset is <= to the file size ********/
+	if(offset>fileSize){
 		return 0;
 	}
-	//file found now need to load it so it can be read
 	/*******              read in data       *****/
 	//find out if it will fit in a block
 	csc452_disk_block data;
 	//the offset changes how much data can be read from the first data block
 	//from it 
-	ret=loadFile(&data, fileLoc);
+	int ret=loadFile(&data, fileLoc);
 	if(ret) return -EIO;
 	//variables to keep track about how much data still needs to be read
 	size_t thisRead=0;
@@ -588,7 +604,7 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 	}
 	return allReads;
 }
-
+	
 /*
  * Write size bytes from buf into file starting from offset
  *
@@ -601,12 +617,99 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 	(void) fi;
 	(void) path;
 
-	//check to make sure path exists
-	//check that size is > 0
-	//check that offset is <= to the file size
-	//write data
+	/*         check to make sure path exists        */
+	size_t fileSize;
+	long fileLoc;
+	//get the new size of file after writing to it
+	size_t newSize=offset+size;
+	int doesnt=fileDoesntExists(path, &fileLoc, &fileSize,1,newSize);
+	//what happens if overwritten is smaller than what it used to be???
+	//if larger add more blocks if the same just dont add any 
+	//but if smaller should disk blocks be deallocated?
+	if(doesnt){//anything other than 0 is true in c
+		return doesnt;
+	}
+	/*              check that size is > 0            */
+	if(size<=0) return 0;
+	/*    check that offset is <= to the file size    */
+	if(offset>fileSize){
+		return -EFBIG;
+	}
+	/*                  write data                    */
+	//I need to update size of the file struct, so I will need access to it
+	//Load first disk of data
+	csc452_disk_block data; 
+	int ret=loadFile(&data, fileLoc);
+	if(ret) return -EIO;
+	/* There are possibly three blocks of interest when writing.
+		1.	The first block after the offset:
+				To reach this one we need to skip over blocks covered by offset
+				then, we need to find the offset within it.
+		2.	Blocks that are written into fully:
+				All of their data slots are written into.
+		3.	The last block that you write into:
+				This block gets partially written into when the last of the data 
+				from buff is written.
+	*/
+	//1.	Skip the blocks passed with offset, the file must be at least as big as the 
+	//offset then, there must be enough disk blocks that exist that will cover the offset
+	
+	off_t skipBlocks=offset/BLOCK_SIZE;
+	while(skipBlocks>0){
+		if(data.nextBlock==-1){
+			//next block was not defined
+			return -EIO;
+		}
+		//load next block of disk
+		fileLoc=data.nextBlock;
+		ret=loadFile(&data, fileLoc);//update struct
+		if(ret) return -EIO;
+		skipBlocks--;
+	}
+	off_t ofInBlock=offset%BLOCK_SIZE; //offset within first block
+	size_t thisWrite=0;
+	size_t allWrites=0;
+	thisWrite=BLOCK_SIZE-ofInBlock;
+	memcpy(data.data+offset,buf,thisWrite);
+	allWrites=thisWrite;
+	//now need to determine where to write next
+	while(size<allWrites){
+		//write to next allocated data block unless there are no more
+		fileLoc=data.nextBlock;
+		if(fileLoc==-1){
+			//we reached the last block, but we are not done writing so we need to get a new block
+			/***We have not created blocks and added them to FAT yet so this is incomplete***/
+			
+		}
+		//assuming that a new disk was created and that file lock containes the number to it
+		ret=loadFile(&data, fileLoc);//update struct to next disk
+		if(ret) return -EIO;		
+		if((size-allWrites)<=BLOCK_SIZE){
+			//this is the last block that needs to be written into
+			memcpy(data.data,buf+allWrites, size-allWrites);
+			//set the rest of this block to zero
+			size_t nextEl=size-allWrites+1;
+			size_t i;
+			for(i=nextEl;i<BLOCK_SIZE;i++){
+				data.data[i]=0;
+			}
+			allWrites=size;
+		}else{
+			//the whole block needs to be written into
+			memcpy(buf+allWrites, data.data,BLOCK_SIZE);
+			allWrites=allWrites+BLOCK_SIZE;
+		}
+	}
+	//when everything has been written there could be a possibility that the overwrite made
+	//the file smaller so the remaining disks from the previous write need to be deallocated
+	if(newSize<=fileSize){
+		//deallocate all consecutive blocks
+		long nextB;
+		while((nextB=data.nextBlock)!=-1){
+			//dealocate the block at nextB
+		}
+	}		
 	//return success, or error
-
 	return size;
 }
 
