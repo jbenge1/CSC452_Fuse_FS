@@ -83,6 +83,12 @@ typedef struct csc452_directory_entry csc452_directory_entry;
 
 struct csc452_disk_block
 {
+	//I am adding this to have a link to the next block of disk 
+	//that will be needed to store a file. When nextBlock is -1 it will mean that
+	//this is the last block of disk of a file. 
+	long nextBlock;
+	
+	
 	//All of the space in the block can be used for actual data
 	//storage.
 	char data[MAX_DATA_IN_BLOCK];
@@ -185,18 +191,22 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
  * This may be called with only /directory, in this case only
  * dir_name will be set
  */
-void extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_name){
+int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_name){
 	//path will have form /directory/file.ext
 	char *nav=path;
 	char *writeOn;//this will be where I will write
 	writeOn=dir_name;
+	int length=1;
 	nav++;//skip the first slash
 	//gets the directory
 	while(*nav!='\0'){
-		if(*nav!='/'){
+		if(*nav!='/' && length<=MAX_FILENAME){
 			*writeOn=*nav;
 			nav++;
 			writeOn++;
+			length++;
+		}else if(length>MAX_FILENAME){
+			return 1;
 		}else{
 			break;
 		}
@@ -207,11 +217,15 @@ void extractFromPath(const char path[],char *file_name, char *file_ext,char *dir
 	if(*nav!='\0'){
 		nav++;//skip next back slash
 		writeOn=file_name;
+		length=1;
 		while(*nav!='\0'){
-			if(*nav!='.'){
+			if(*nav!='.' && length<=MAX_FILENAME){
 				*writeOn=*nav;
 				nav++;
 				writeOn++;
+				length++;
+			}else if(length>MAX_FILENAME){
+				return 2;
 			}else{
 				break;
 			}
@@ -220,14 +234,20 @@ void extractFromPath(const char path[],char *file_name, char *file_ext,char *dir
 		*writeOn='\0';
 		nav++;//skip period
 		writeOn=file_ext;
+		length=1;
 		while(*nav!='\0'){
-			*writeOn=*nav;
-			nav++;
-			writeOn++;
+			if(length<=MAX_EXTENSION){
+				*writeOn=*nav;
+				nav++;
+				writeOn++;
+				length++;
+			}else{
+				return 3;
+			}
 		}
 		*writeOn='\0';
 	}
-	return;
+	return 0;
 }
 
 /*	This function will read from a file representing disk
@@ -320,12 +340,14 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	char dir_name[MAX_FILENAME+1]="\0";//assume dir name max is same as file FOR NOW
 	
 	//extract these from path
-	extractFromPath(path,&file_name[0],&file_ext[0],&dir_name[0]);
+	int retVal=extractFromPath(path,&file_name[0],&file_ext[0],&dir_name[0]);
 	
 	//*****ensure path is a directory*****
-	if(path[0]!='/' || file_name[0]!='\0'){//if a file was processed then, it is not a dir
-		return -ENOENT;
+	if(file_name[0]!='\0'){//if a file was processed then, it is not a dir
+		return -ENOTDIR;
 	}
+	//if retVal was nonzero then there was an error with the length of a section of path
+	if(retVal || path[0]!='/') return -ENOENT;
 	/*****Load contents from the root*****/
 	/* I need the root to either get all of its children or 
 	   so I can add them, or I need it so I can search for
@@ -333,7 +355,7 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	 */
 	csc452_root_directory root;
 	int ret=loadRoot(&root);
-	if(ret) return -EBADF; //file handle invalid
+	if(ret) return -EIO; //file handle invalid
 	if (strcmp(path, "/") != 0) {
 		//this is not the root so it must be a directory in the root 
 		/*filler(buf, ".", NULL,0);
@@ -346,7 +368,7 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		//load the directory
 		csc452_directory_entry thisDir;
 		ret=loadDir(&thisDir, location);
-		if(ret) return -EBADF;
+		if(ret) return -EIO;
 		//get all files from disk struct
 		int i,numFiles=thisDir.nFiles;
 		
@@ -370,7 +392,7 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		}
 			
 	}
-
+	//???On success, 1 is returned. On end of directory, 0 is returned
 	return 0;
 }
 
@@ -429,7 +451,43 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
 	
 	return 0;
 }
+/* 
+ * This function will search in the files of a directory pointed by 
+ * *directory and will return the long with the location to the file starting pointed
+ * when found, or -1 otherwise. 
+ * When found the memory pointed by fsize gets set to the file's size.
+ * There is an assumption that all valid files are
+ * adjacent to each other (no invalid file in between.
+ */
+long findFile(csc452_directory_entry *directory, char fname[], char fext[], size_t *fsize){
+	int i;
+	int numFiles=directory->nFiles;
+	for(i=0;i<numFiles;i++){
+		if(!strcmp(directory->files[i].fname, fname) && !strcmp(directory->files[i].fext,fext)){//strcmp returns zero if equal
+			*fsize=directory->files[i].fsize;
+			return directory->files[i].nStartBlock;
+		}
+	}
+	return (long)(-1);
+}
 
+/*
+ * This function will take in a pointer to a disk block and a long with the location 
+ * of that block in memory and then load the block into the struct. 
+ * It returns zero if successful or other if there were errors.
+ */
+int loadFile(csc452_disk_block *block, long location){
+	 FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,inFileLoc,SEEK_SET);
+	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+	 int ret =fread(block, BLOCK_SIZE, 1, fp);
+	 fclose(fp);
+	 if(ret!=1) DISK_READ_ER;
+	 return 0;
+ }
 /*
  * Read size bytes from file into buf starting from offset
  *
@@ -437,18 +495,98 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
 static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 			  struct fuse_file_info *fi)
 {
-	(void) buf;
-	(void) offset;
 	(void) fi;
-	(void) path;
-
-	//check to make sure path exists
-	//check that size is > 0
-	//check that offset is <= to the file size
-	//read in data
-	//return success, or error
-
-	return size;
+	/******    check to make sure path exists    *************/
+	char file_name[MAX_FILENAME+1]="\0";
+	char file_ext[MAX_EXTENSION+1]="\0";
+	char dir_name[MAX_FILENAME+1]="\0";//assume dir name max is same as file FOR NOW
+	
+	//extract these from path
+	int invalid=extractFromPath(path,&file_name[0],&file_ext[0],&dir_name[0]);
+	if(invalid) return -ENOENT;//path was not valid due to length of names
+	if(file_name=='\0'){//if no file was read then it would the root or a directory so they cant be read
+		return -EISDIR;
+	} 	
+	//check that size is > 0 ???
+	if(size<=0) return 0;
+	/******** check that offset is <= to the file size ********/
+	
+	// Need to determine if file actually exists
+	csc452_root_directory root;
+	int ret=loadRoot(&root);
+	if(ret) return -EIO; //could not load from .disk
+	//search for directory in root struct
+	long location=findDirectory(&root, dir_name);
+	if (location==-1)return -ENOENT; //the directory was not found in root
+	//load the directory
+	csc452_directory_entry thisDir;
+	ret=loadDir(&thisDir, location); 
+	if(ret) return -EIO;//problem reading from .disk
+	//search for file in directory
+	size_t fileSize;
+	long fileLoc=findFile(&thisDir, file_name,file_ext,&fileSize);
+	if(fileLoc==-1) return -ENOENT; //this file was not found 
+	//check offset
+	if(offset>(fileSize+fileLoc*BLOCK_SIZE)){
+		//???should I try to read anything after the end of file?
+		return 0;
+	}
+	//file found now need to load it so it can be read
+	/*******              read in data       *****/
+	//find out if it will fit in a block
+	csc452_disk_block data;
+	//the offset changes how much data can be read from the first data block
+	//from it 
+	ret=loadFile(&data, fileLoc);
+	if(ret) return -EIO;
+	//variables to keep track about how much data still needs to be read
+	size_t thisRead=0;
+	size_t allReads=0;
+	if(fileSize<size){
+		//cannot read more than what the file has so update size
+		size=fileSize;
+	}
+	//There could be blocks of data that were placed before offset so I need to skip over these
+	off_t skipBlocks=offset/BLOCK_SIZE;
+	while(skipBlocks>0){
+		if(data.nextBlock==-1){
+			//next block was not defined
+			return -EIO;
+		}
+		//load next block of disk
+		fileLoc=data.nextBlock;
+		ret=loadFile(&data, fileLoc);//update struct
+		if(ret) return -EIO;
+		skipBlocks--;
+	}
+	//I now have the first block I need to read from, offset affects this one
+	//starting point 
+	off_t ofInBlock=offset%BLOCK_SIZE;
+	thisRead=BLOCK_SIZE-ofInBlock;
+	memcpy(buf, data.data+ofInBlock,thisRead);//read the remaining until the end of the first block
+	allReads=allReads+thisRead;
+	//Any following reads will not be affected by offset on their data starting point
+	while(allReads<size){
+		//I want to read the rest of the data from the next disks
+		fileLoc=data.nextBlock;
+		if(fileLoc==-1){
+			//we reached the last block
+			break;
+		}
+		ret=loadFile(&data, fileLoc);//update struct
+		if(ret) return -EIO;
+		
+		if((size-allReads)<=BLOCK_SIZE){
+			//this is the last block that needs to be read
+			memcpy(buf, data.data, size-allReads);
+			allReads=size;
+		}else{
+			//the whole block needs to be read
+			memcpy(buf, data.data,BLOCK_SIZE);
+			allReads=allReads+BLOCK_SIZE;
+		}
+	}
+	return allReads;
 }
 
 /*
