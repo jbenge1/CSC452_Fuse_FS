@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <unistd.h>
 
 //size of a disk block
 #define	BLOCK_SIZE 512
@@ -96,7 +97,15 @@ struct csc452_disk_block
 
 typedef struct csc452_disk_block csc452_disk_block;
 
+//Lets just keep track of where we are in the file....
+long int num_blocks = 0;
 
+void check_errors(char *str)
+{
+    FILE *fp = fopen("/home/justin/errors.txt", "w");
+    fprintf(fp, str);
+    fclose(fp);
+}
 /**
  * let's just count up the number of slashes?
  */
@@ -118,30 +127,52 @@ int is_file(const char *path)
     return 0;
 }
 
+int loadRoot(csc452_root_directory*);
 
 int dir_exists(const char *path) 
 {
-    FILE *fp = fopen(".disk", "r");
-    if(fp == NULL)
-        return -1;
+//    FILE *fp = fopen(".disk", "r");
+//    if(fp == NULL)
+//        return -1;
     csc452_root_directory root;
-    fread(&root, 512, 1, fp);
+//    fread(&root, BLOCK_SIZE, 1, fp);
+    loadRoot(&root);
     
     int i;
     for(i=0;i<root.nDirectories;i++)
     {
-        char *temp = path;
-        char *token = strtok(temp, "/");
-        if(strcmp(token, path))
+        char *temp = root.directories[i].dname;
+        if(strcmp(temp, path))
             return 1;
-    temp = NULL;
-    free(temp);
+       
+        temp = NULL;
+        free(temp);
     }
-    fclose(fp);
+    //fclose(fp);
 
-    fp = NULL;
-    free(fp);
+    //fp = NULL;
+    //free(fp);
 
+    return 0;
+}
+
+int file_exists(const char *path)
+{
+    /*
+    char dir[] = strtok(path, "/");
+    csc452_root_directory root;
+    loadRoot(&root);
+    
+    long dir_start = findDirectory(root, dir);
+    csc452_directory_entry dir;
+    loadDir(&dir, dir_start);    
+
+    int i;
+    for(i=0;i<dir.nFiles;i++)
+    {
+        
+    }
+    */
     return 0;
 }
 
@@ -164,7 +195,6 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 		//If the path does exist and is a directory:
         if (is_dir(path) && dir_exists(path)) 
         {
-
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
         }
@@ -402,37 +432,86 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
  */
 static int csc452_mkdir(const char *path, mode_t mode)
 {
-	(void) path;
 	(void) mode;
   
     //wait..... 
-    csc452_directory_entry *dir = malloc(sizeof(csc452_directory_entry));
-    FILE *disk = fopen(".disk", "r");
     csc452_root_directory root;
-    fread(&root, 512, 1, disk);
-    fclose(disk);
-
+    loadRoot(&root);
     //As of right now this is insuffiecient
     //I will need to create a 512b block as well in .disk
     //for my directory to store files....
     //Also I'm missing a bunch of error checks
-    if(disk != NULL)
+
+    if(&root != NULL)
     {
         if(dir_exists(path))
             return -EEXIST;
-
         
+        csc452_directory_entry *dir = malloc(sizeof(csc452_directory_entry));
         dir->nFiles = 0;
-        fclose(disk);
-        strcpy(root.directories[++root.nDirectories].dname, path);
-        root.directories[root.nDirectories].nStartBlock = 512 * (root.nDirectories + 1);
-        disk = fopen(".disk", "w");
-        fwrite(&root, 512, 1, disk);
-        fclose(disk);
+        
+
+        strcpy(root.directories[root.nDirectories++].dname, path);
+        root.directories[root.nDirectories].nStartBlock = BLOCK_SIZE * (++num_blocks);
+
+        FILE *disk_write_fp = fopen(".disk", "w");
+        fseek(disk_write_fp, 0, SEEK_SET);
+        fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
+        
+        fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
+        fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
+        fclose(disk_write_fp);
+        disk_write_fp = NULL;
+        free(disk_write_fp);
     }
-    disk = NULL;
-    free(disk);
    	return 0;
+}
+
+
+void shift_directories(csc452_root_directory *root)
+{
+}
+/*
+ * Removes a directory (must be empty)
+ *
+ */
+static int csc452_rmdir(const char *path)
+{
+    csc452_root_directory root;
+    loadRoot(&root);
+
+    //first the errors
+    if(!dir_exists(path))
+        return -ENOENT;
+    if(!is_dir(path))
+        return -ENOTDIR;
+    
+    //now lets actually find the directory
+    int i;
+    for(i=0;i<root.nDirectories;i++)
+    {
+        if(strcmp(path, root.directories[i].dname))
+        {
+            long start = findDirectory(&root, path);
+            csc452_directory_entry dir;
+            loadDir(&dir, start);
+            if(dir.nFiles == 0)
+            {
+                int j;
+                for(int j=i;j<root.nDirectories-1;j++)
+                {
+                    root.directories[j] = root.directories[j+1];
+                }
+                root.nDirectories -= 1;
+                shift_directories(&root);
+                return 0;
+            }
+            else
+                return -ENOTEMPTY;
+        }
+    }
+    
+	return -ENOENT;
 }
 
 /*
@@ -445,10 +524,30 @@ static int csc452_mkdir(const char *path, mode_t mode)
  */
 static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
 {
-	(void) path;
 	(void) mode;
     (void) dev;
 	
+    csc452_root_directory root;
+    loadRoot(&root);
+
+    if(file_exists(path))
+        return -EEXIST;
+
+    csc452_disk_block *nod = malloc(sizeof(csc452_disk_block));
+    char *dir_name = strtok(path, "/"); 
+    long dir_start = findDirectory(&root, dir_name[0]);
+    csc452_directory_entry dir;
+    loadDir(&dir, dir_start);    
+   
+    char *token = strtok(path, ".");
+    strcpy(dir.files[dir.nFiles].fname, token);
+    token = strtok(NULL, ".");
+    strcpy(dir.files[dir.nFiles++].fext, token);
+    check_errors(dir.files[dir.nFiles - 1].fname);
+//    char *fname = strtok(token[1], ".");  
+//    check_errors(token);
+//    dir.files[dir.nFiles].fname = path; 
+
 	return 0;
 }
 /* 
@@ -711,17 +810,6 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 	}		
 	//return success, or error
 	return size;
-}
-
-/*
- * Removes a directory (must be empty)
- *
- */
-static int csc452_rmdir(const char *path)
-{
-	  (void) path;
-
-	  return 0;
 }
 
 /*
