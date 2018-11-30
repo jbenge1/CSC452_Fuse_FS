@@ -131,29 +131,24 @@ int loadRoot(csc452_root_directory*);
 
 int dir_exists(const char *path) 
 {
-//    FILE *fp = fopen(".disk", "r");
-//    if(fp == NULL)
-//        return -1;
     csc452_root_directory root;
-//    fread(&root, BLOCK_SIZE, 1, fp);
     loadRoot(&root);
-    
+    int res = 0; 
     int i;
     for(i=0;i<root.nDirectories;i++)
     {
         char *temp = root.directories[i].dname;
-        if(strcmp(temp, path))
-            return 1;
+        if(strcmp(temp, path) == 0)
+        {
+            check_errors("here from strcmp(temp,path)");
+            res = 1;
+        }
        
         temp = NULL;
         free(temp);
     }
-    //fclose(fp);
 
-    //fp = NULL;
-    //free(fp);
-
-    return 0;
+    return res;
 }
 
 int file_exists(const char *path)
@@ -195,12 +190,14 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 		//If the path does exist and is a directory:
         if (is_dir(path) && dir_exists(path)) 
         {
+            check_errors("HERE from getattr is_dir...\n");
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
         }
 		//If the path does exist and is a file:
         else if(is_file(path))
         {
+            check_errors("HERE from getattr is_file...\n");
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
             stbuf->st_size = 512; //file size
@@ -454,7 +451,7 @@ static int csc452_mkdir(const char *path, mode_t mode)
         strcpy(root.directories[root.nDirectories++].dname, path);
         root.directories[root.nDirectories].nStartBlock = BLOCK_SIZE * (++num_blocks);
 
-        FILE *disk_write_fp = fopen(".disk", "w");
+        FILE *disk_write_fp = fopen(".disk", "r+");
         fseek(disk_write_fp, 0, SEEK_SET);
         fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
         
