@@ -109,7 +109,7 @@ void check_errors(char *str)
 /**
  * let's just count up the number of slashes?
  */
-int is_dir(const char *path) 
+int is_dir(const char *path, int num) 
 {
     int count = 0;
     char *temp;
@@ -120,7 +120,7 @@ int is_dir(const char *path)
     }
 //    fprintf(fp, "%d", count);
 //    fclose(fp);
-    return count >= 1;
+    return count >= num;
 }
 int is_file(const char *path)
 {
@@ -185,7 +185,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 	} else  {
 		
 		//If the path does exist and is a directory:
-        if (is_dir(path) && dir_exists(path)) 
+        if (is_dir(path,1) && dir_exists(path)) 
         {
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
@@ -426,6 +426,11 @@ static int csc452_mkdir(const char *path, mode_t mode)
 {
 	(void) mode;
   
+    if(is_dir(path, 2))
+        return -EPERM;
+    char *token = strtok(path, "/");
+    if(strlen(token) > 8)
+        return -ENAMETOOLONG;
     //wait..... 
     csc452_root_directory root;
     loadRoot(&root);
@@ -476,7 +481,7 @@ static int csc452_rmdir(const char *path)
     //first the errors
     if(!dir_exists(path))
         return -ENOENT;
-    if(!is_dir(path))
+    if(!is_dir(path, 1))
         return -ENOTDIR;
     //now lets actually find the directory
     int i;
@@ -496,7 +501,6 @@ static int csc452_rmdir(const char *path)
                     root.directories[j] = root.directories[j+1];
                 }
                 root.nDirectories -= 1;
-               // shift_directories(&root);
                 return 0;
             }
             else
