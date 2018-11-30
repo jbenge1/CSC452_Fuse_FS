@@ -139,10 +139,7 @@ int dir_exists(const char *path)
     {
         char *temp = root.directories[i].dname;
         if(strcmp(temp, path) == 0)
-        {
-            check_errors("here from strcmp(temp,path)");
             res = 1;
-        }
        
         temp = NULL;
         free(temp);
@@ -190,14 +187,12 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 		//If the path does exist and is a directory:
         if (is_dir(path) && dir_exists(path)) 
         {
-            check_errors("HERE from getattr is_dir...\n");
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
         }
 		//If the path does exist and is a file:
         else if(is_file(path))
         {
-            check_errors("HERE from getattr is_file...\n");
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
             stbuf->st_size = 512; //file size
@@ -467,6 +462,7 @@ static int csc452_mkdir(const char *path, mode_t mode)
 
 void shift_directories(csc452_root_directory *root)
 {
+
 }
 /*
  * Removes a directory (must be empty)
@@ -482,17 +478,17 @@ static int csc452_rmdir(const char *path)
         return -ENOENT;
     if(!is_dir(path))
         return -ENOTDIR;
-    
     //now lets actually find the directory
     int i;
     for(i=0;i<root.nDirectories;i++)
     {
-        if(strcmp(path, root.directories[i].dname))
+        if(strcmp(path, root.directories[i].dname) == 0)
         {
             long start = findDirectory(&root, path);
             csc452_directory_entry dir;
             loadDir(&dir, start);
-            if(dir.nFiles == 0)
+
+            if(dir.nFiles-1 == 0)
             {
                 int j;
                 for(int j=i;j<root.nDirectories-1;j++)
@@ -500,7 +496,7 @@ static int csc452_rmdir(const char *path)
                     root.directories[j] = root.directories[j+1];
                 }
                 root.nDirectories -= 1;
-                shift_directories(&root);
+               // shift_directories(&root);
                 return 0;
             }
             else
