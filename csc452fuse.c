@@ -34,6 +34,8 @@
 
 //The file representing the disk
 #define DISK_FILE ".disk"
+//5MB 5*2^20
+#define DISK_SIZE 5242880 
 
 //Errors 
 #define DISK_NFE {fprintf(stderr,"Disk File not found\n"); return(1);}
@@ -82,21 +84,54 @@ typedef struct csc452_directory_entry csc452_directory_entry;
 #define	MAX_DATA_IN_BLOCK (BLOCK_SIZE)
 
 struct csc452_disk_block
-{
-	//I am adding this to have a link to the next block of disk 
-	//that will be needed to store a file. When nextBlock is -1 it will mean that
-	//this is the last block of disk of a file. 
-	long nextBlock;
-	
-	
+{	
 	//All of the space in the block can be used for actual data
 	//storage.
 	char data[MAX_DATA_IN_BLOCK];
 };
 
 typedef struct csc452_disk_block csc452_disk_block;
+#define MAX_NUM_BLOCKS ((DISK_SIZE/BLOCK_SIZE)-40)
+//The size of this spans 40 blocks of disk
+typedef struct FileAllocationTable{
+	short numOfAllocations;//current number of allocations
+	short FAT[MAX_NUM_BLOCKS];//#max blocks in file, one for root 
+}FAT;
 
-
+/*This function will load the FAT from the disk file
+ * into fatMem, assumes that it its the right size to store it
+ * assumes no file will be allowed to overwrite it 
+ * It returns 0 on success
+ */
+int loadFAT(FAT *fatMem){
+	/*The disk size is 5 MB, thus is holds up to 5*2^11 blocks, which would require the same number of 
+	 *entries which in a table their index can be stores in a short, resulting in a table that requires 40
+	 *blocks of memory. Therefore the Max number of blocks that can be used will be 5*2^11-40, making the the size of
+	 *the fat =to 39.87 blocks, which gives me just enough space to add a short containing the number of blocks currently allocated
+	 */
+	 FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 long location=MAX_NUM_BLOCKS;//the one after the last file 
+	 long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,inFileLoc,SEEK_SET);
+	 int ret =fread(fatMem, BLOCK_SIZE*40, 1, fp);
+	 fclose(fp);
+	 if(ret!=1) DISK_READ_ER;
+	 return 0;
+}
+/* load FAT after updates */
+int writeFAT(FAT *fatStruct){
+	FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 long location=MAX_NUM_BLOCKS;//the one after the last file 
+	 long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,inFileLoc,SEEK_SET);
+	 fwrite(fatStruct, BLOCK_SIZE*40, 1, fp);
+	 fclose(fp);
+	 return 0;
+}
 /**
  * let's just count up the number of slashes?
  */
@@ -199,6 +234,7 @@ int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_
 	int length=1;
 	nav++;//skip the first slash
 	//gets the directory
+	if(!strcmp(path, "")) return -1;
 	while(*nav!='\0'){
 		if(*nav!='/' && length<=MAX_FILENAME){
 			*writeOn=*nav;
@@ -272,7 +308,7 @@ int loadRoot(csc452_root_directory *root){
  */
 long findDirectory(csc452_root_directory *root, char name[]){
 	int i;
-	int numDirs=root->nDirectories;
+	int numDirs=MAX_DIRS_IN_ROOT;
 	for(i=0;i<numDirs;i++){
 		if(!strcmp(root->directories[i].dname, name)){//strcmp returns zero if equal
 			return root->directories[i].nStartBlock;
@@ -281,6 +317,19 @@ long findDirectory(csc452_root_directory *root, char name[]){
 	return (long)(-1);
 }
 
+/* This function will write a directory at a particular block 
+   that was modified back to the disk file*/
+int writeDirectory(csc452_directory_entry *dir, long location){
+	FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,inFileLoc,SEEK_SET);
+	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+	fwrite(dir, BLOCK_SIZE, 1, fp);
+	 fclose(fp);
+	 return 0;
+ }
 /*	This function will receive a pointer to a directory struct and a long that
  *	holds its location in .disk and then it will load the dir from .disk into the struct
  */
@@ -296,7 +345,35 @@ int loadDir(csc452_directory_entry *dir, long location){
 	 if(ret!=1) DISK_READ_ER;
 	 return 0;
  }
-/* This function will take in two strings one with a file name and one with an extension
+/* This function assumes path is valid*/
+int removeFileFromDirectory(const char path[]){
+	char file_name[MAX_FILENAME+1]="\0";
+	char file_ext[MAX_EXTENSION+1]="\0";
+	char dir_name[MAX_FILENAME+1]="\0";
+	sscanf(path, "/%[^/]/%[^.].%s", dir_name, file_name, file_ext);
+	csc452_root_directory root;
+	int ret=loadRoot(&root);
+	if(ret) return -EIO; 
+	long location=findDirectory(&root, dir_name);
+	if (location==-1)return -ENOENT;
+	csc452_directory_entry thisDir;
+	ret=loadDir(&thisDir, location);
+	if(ret) return -EIO;
+	int i;
+	int numFiles=MAX_FILES_IN_DIR;
+	for(i=0;i<numFiles;i++){
+		if(!strcmp(thisDir.files[i].fname, file_name) && !strcmp(thisDir.files[i].fext,file_ext)){//strcmp returns zero if equal
+			thisDir.files[i].fsize=0;
+			thisDir.files[i].fname[0]='\0';	//filename (plus space for nul)
+		    thisDir.files[i].fext[0]='\0';	//extension (plus space for nul)
+		    thisDir.files[i].nStartBlock=0;
+		}
+	}
+	thisDir.nFiles=thisDir.nFiles-1;
+	writeDirectory(&thisDir, location);
+	return 0;
+}	
+ /* This function will take in two strings one with a file name and one with an extension
  * and concat them with a period in between into a third string passed with pointer
  * This function assumes the string where the result will be stored has enough memory allocated
  * This function returns the number of characters loaded into fullName
@@ -461,7 +538,7 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
  */
 long findFile(csc452_directory_entry *directory, char fname[], char fext[], size_t *fsize,int write, size_t newSize){
 	int i;
-	int numFiles=directory->nFiles;
+	int numFiles=MAX_FILES_IN_DIR;
 	for(i=0;i<numFiles;i++){
 		if(!strcmp(directory->files[i].fname, fname) && !strcmp(directory->files[i].fext,fext)){//strcmp returns zero if equal
 			*fsize=directory->files[i].fsize;//pass old size
@@ -491,6 +568,17 @@ int loadFile(csc452_disk_block *block, long location){
 	 if(ret!=1) DISK_READ_ER;
 	 return 0;
  }
+int writeFile(csc452_disk_block *block, long location){
+	 FILE* fp=fopen(DISK_FILE, "r");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,inFileLoc,SEEK_SET);
+	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+	 fwrite(block, BLOCK_SIZE, 1, fp);
+	 fclose(fp);
+	 return 0;
+ }
  /*
  * This function will determine if a path is valid 
  * and if valid it will determine if exists. It will return 
@@ -506,7 +594,7 @@ int fileDoesntExists(const char *path, long *fileLoc, size_t *fileSize,int onWri
 	
 	//extract these from path
 	int invalid=extractFromPath(path,&file_name[0],&file_ext[0],&dir_name[0]);
-	if(invalid) return -ENOENT;//path was not valid due to length of names
+	if(invalid) return -ENOENT;//path was not valid due to length of names or null path
 	if(file_name=='\0'){//if no file was read then it would the root or a directory so they cant be read
 		return -EISDIR;
 	}
@@ -564,34 +652,40 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 	}
 	//There could be blocks of data that were placed before offset so I need to skip over these
 	off_t skipBlocks=offset/BLOCK_SIZE;
+	//load FAT
+	FAT fat;
+	ret=loadFAT(&fat);
+	if(ret) return -EIO;
 	while(skipBlocks>0){
-		if(data.nextBlock==-1){
+		if(fat.FAT[fileLoc]<1){
 			//next block was not defined
 			return -EIO;
 		}
 		//load next block of disk
-		fileLoc=data.nextBlock;
-		ret=loadFile(&data, fileLoc);//update struct
-		if(ret) return -EIO;
+		fileLoc=fat.FAT[fileLoc];
 		skipBlocks--;
 	}
+	ret=loadFile(&data, fileLoc);//update struct
+	if(ret) return -EIO;
 	//I now have the first block I need to read from, offset affects this one
 	//starting point 
 	off_t ofInBlock=offset%BLOCK_SIZE;
 	thisRead=BLOCK_SIZE-ofInBlock;
+	if(size<thisRead){
+		thisRead=size;
+	}
 	memcpy(buf, data.data+ofInBlock,thisRead);//read the remaining until the end of the first block
 	allReads=allReads+thisRead;
 	//Any following reads will not be affected by offset on their data starting point
 	while(allReads<size){
 		//I want to read the rest of the data from the next disks
-		fileLoc=data.nextBlock;
-		if(fileLoc==-1){
+		if(fat.FAT[fileLoc]<1){
 			//we reached the last block
 			break;
 		}
+		fileLoc=fat.FAT[fileLoc];
 		ret=loadFile(&data, fileLoc);//update struct
 		if(ret) return -EIO;
-		
 		if((size-allReads)<=BLOCK_SIZE){
 			//this is the last block that needs to be read
 			memcpy(buf, data.data, size-allReads);
@@ -604,7 +698,43 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 	}
 	return allReads;
 }
-	
+
+/* This function takes in a pointer to a file allocation table,
+ * and a file location and it deallocates all data disks that were 
+ * after the file location provided for the file from the file allocation table
+ * by setting them to 0 in the table
+ */
+void trimAfter(FAT* fat, short fileLoc){
+	short next=fat->FAT[fileLoc];
+	if(next<1){//-1 sentinel for last file, 0 initialized value maybe.
+		return;
+	}
+	fat->FAT[fileLoc]=-1;//setting it to 0
+	//decrement allocation
+	fat->numOfAllocations=fat->numOfAllocations-1;
+	trimAfter(fat, next);
+}
+/* This function has a job of finding the next available disk in the FAT
+ * we need to come up with a search algorithm
+ */
+short findADisk(FAT *fat){
+	return -1; /*We need to implement this*/
+}
+/*
+ * This function receives a pointer to a file allocation table struct
+ * and it searches in its elements for an available disk of memory
+ * it returns an idex to this block or -1 if none is available
+ */
+short getDisk(FAT *fat){
+	if(fat->numOfAllocations < MAX_NUM_BLOCKS-1){//-1 because the first is root
+		//can get a new one
+		return findADisk(fat);
+	}
+	return -1;
+}
+
+/* This function takes in the location of the first disk of memory for a file, 
+ * and goes through each updating the file size*/
 /*
  * Write size bytes from buf into file starting from offset
  *
@@ -619,13 +749,15 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 
 	/*         check to make sure path exists        */
 	size_t fileSize;
-	long fileLoc;
+	long fileLocOr;
 	//get the new size of file after writing to it
 	size_t newSize=offset+size;
-	int doesnt=fileDoesntExists(path, &fileLoc, &fileSize,1,newSize);
+	//dont update the size in case there is an error
+	int doesnt=fileDoesntExists(path, &fileLocOr, &fileSize,0,newSize);//haven't written anything
 	//what happens if overwritten is smaller than what it used to be???
 	//if larger add more blocks if the same just dont add any 
 	//but if smaller should disk blocks be deallocated?
+	long fileLoc= fileLocOr;
 	if(doesnt){//anything other than 0 is true in c
 		return doesnt;
 	}
@@ -649,41 +781,70 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 				All of their data slots are written into.
 		3.	The last block that you write into:
 				This block gets partially written into when the last of the data 
-				from buff is written.
+				from buff is written, then everything else is deleted.
 	*/
-	//1.	Skip the blocks passed with offset, the file must be at least as big as the 
-	//offset then, there must be enough disk blocks that exist that will cover the offset
-	
+	//get the file allocation table 
+	FAT fat;
+	ret=loadFAT(&fat);
+	if(ret) return -EIO;
 	off_t skipBlocks=offset/BLOCK_SIZE;
 	while(skipBlocks>0){
-		if(data.nextBlock==-1){
-			//next block was not defined
+		short nextLoc=fat.FAT[fileLoc];
+		if(nextLoc<1){//-1 sentinel for last block, 0 uninitialized
 			return -EIO;
 		}
 		//load next block of disk
-		fileLoc=data.nextBlock;
-		ret=loadFile(&data, fileLoc);//update struct
-		if(ret) return -EIO;
+		fileLoc=nextLoc;
 		skipBlocks--;
 	}
+	ret=loadFile(&data, fileLoc);//update struct
+	if(ret) return -EIO;
 	off_t ofInBlock=offset%BLOCK_SIZE; //offset within first block
 	size_t thisWrite=0;
 	size_t allWrites=0;
 	thisWrite=BLOCK_SIZE-ofInBlock;
+	//how much am I going to write 
+	if(size<thisWrite){
+		//I am only writing a portion of the first block
+		thisWrite=size;
+	}
 	memcpy(data.data+offset,buf,thisWrite);
 	allWrites=thisWrite;
+	if((ofInBlock+thisWrite)!=BLOCK_SIZE){//write shorter than the first block
+		//I need to clear up from here
+		int i;
+		for(i=(ofInBlock+thisWrite); i<BLOCK_SIZE;i++){
+			data.data[i]=0;
+		}
+		//need to deallocate all next files from before
+		trimAfter(&fat, fileLoc);
+	}
+	writeFile(&data, fileLoc);//update first block in file
 	//now need to determine where to write next
 	while(size<allWrites){
 		//write to next allocated data block unless there are no more
-		fileLoc=data.nextBlock;
-		if(fileLoc==-1){
+		short newfileLoc=fat.FAT[fileLoc];
+		if(newfileLoc==-1){
 			//we reached the last block, but we are not done writing so we need to get a new block
-			/***We have not created blocks and added them to FAT yet so this is incomplete***/
-			
+			short available=getDisk(&fat);
+			if(available==-1){
+				doesnt=fileDoesntExists(path, &fileLocOr, &fileSize,1,offset+allWrites);//update the potion of fils so far
+				writeFAT(&fat);
+				return EDQUOT;
+			}
+			fat.FAT[fileLoc]=available;
+			fat.FAT[available]=-1;//this is the current last disk
+			fat.numOfAllocations=fat.numOfAllocations+1;
+			newfileLoc=available;
 		}
-		//assuming that a new disk was created and that file lock containes the number to it
+		fileLoc=newfileLoc;
 		ret=loadFile(&data, fileLoc);//update struct to next disk
-		if(ret) return -EIO;		
+		if(ret){
+			//update partial rewrite
+			doesnt=fileDoesntExists(path, &fileLocOr, &fileSize,1,offset+allWrites);
+			writeFAT(&fat);
+			return -EIO;	
+		}			
 		if((size-allWrites)<=BLOCK_SIZE){
 			//this is the last block that needs to be written into
 			memcpy(data.data,buf+allWrites, size-allWrites);
@@ -694,23 +855,22 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 				data.data[i]=0;
 			}
 			allWrites=size;
+			//write this disk to disk o update it
+			//if there were more blocks allocated after this one, 
+			//they should be removed from the fat
+			trimAfter(&fat, fileLoc);
 		}else{
 			//the whole block needs to be written into
 			memcpy(buf+allWrites, data.data,BLOCK_SIZE);
 			allWrites=allWrites+BLOCK_SIZE;
 		}
-	}
-	//when everything has been written there could be a possibility that the overwrite made
-	//the file smaller so the remaining disks from the previous write need to be deallocated
-	if(newSize<=fileSize){
-		//deallocate all consecutive blocks
-		long nextB;
-		while((nextB=data.nextBlock)!=-1){
-			//dealocate the block at nextB
-		}
-	}		
+		writeFile(&data, fileLoc);
+	}	
+	//after done update all the files new sizes
+	doesnt=fileDoesntExists(path, &fileLocOr, &fileSize,1,offset+allWrites);
+	writeFAT(&fat);//update FAT
 	//return success, or error
-	return size;
+	return allWrites;
 }
 
 /*
@@ -730,7 +890,29 @@ static int csc452_rmdir(const char *path)
  */
 static int csc452_unlink(const char *path)
 {
+	//-EISDIR if the path is a directory
+	//-ENOENT if the file is not found
         (void) path;
+		//verify that path is valid
+		size_t fileSize;
+		long fileLocOr;
+		int doesnt=fileDoesntExists(path, &fileLocOr, &fileSize,0,0);
+		if(doesnt){
+			return doesnt;//it already includes the reason
+		}
+		//load file allocation table
+		FAT fat;
+		int ret=loadFAT(&fat);
+		if(ret) return -EIO;
+		//now remove all the blocks from this file from the FAT
+		trimAfter(&fat, fileLocOr);
+		//remove this block from the file allocation table
+		fat.FAT[fileLocOr]=-1;//in the case of no consecutive blocks
+		fat.numOfAllocations=fat.numOfAllocations-1;
+		ret=removeFileFromDirectory(path);//update Dir
+		if(ret) return -EIO;
+		ret=writeFAT(&fat);//update FAT
+		if(ret) return -EIO;
         return 0;
 }
 
