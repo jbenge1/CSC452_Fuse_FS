@@ -148,23 +148,25 @@ int dir_exists(const char *path)
     return res;
 }
 
-int file_exists(const char *path)
+long findDirectory(csc452_root_directory*, char[]);
+int  loadDir      (csc452_directory_entry*, long );
+
+int file_exists(const char dname[], const char *fname)
 {
-    /*
-    char dir[] = strtok(path, "/");
+    
     csc452_root_directory root;
     loadRoot(&root);
-    
-    long dir_start = findDirectory(root, dir);
+    long dir_start = findDirectory(&root, dname);
     csc452_directory_entry dir;
     loadDir(&dir, dir_start);    
 
     int i;
     for(i=0;i<dir.nFiles;i++)
     {
-        
+       if(strcmp(fname, dir.files[i].fname) == 0)
+           return 1; 
     }
-    */
+    
     return 0;
 }
 
@@ -178,7 +180,7 @@ int file_exists(const char *path)
 static int csc452_getattr(const char *path, struct stat *stbuf)
 {
 	int res = 0;
-
+    check_errors(path);
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
@@ -191,7 +193,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
             stbuf->st_nlink = 2;
         }
 		//If the path does exist and is a file:
-        else if(is_file(path))
+        else if(is_dir(path, 1))
         {
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
@@ -465,10 +467,6 @@ static int csc452_mkdir(const char *path, mode_t mode)
 }
 
 
-void shift_directories(csc452_root_directory *root)
-{
-
-}
 /*
  * Removes a directory (must be empty)
  *
@@ -526,26 +524,42 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
 	
     csc452_root_directory root;
     loadRoot(&root);
-
-    if(file_exists(path))
+    if(!is_dir(path, 2))
+        return -EPERM; 
+    
+    char *dname = strtok(path, "/");
+    char *temp  = strtok(NULL, "/");
+    char *fname = strtok(temp, "."); 
+    char *ext   = strtok(NULL, ".");
+    
+    char dir_name[9] = "/";
+    strcat(dir_name, dname);
+    if(file_exists(dir_name, fname))
         return -EEXIST;
+    if(strlen(fname) > 8)
+        return -ENAMETOOLONG;
+
 
     csc452_disk_block *nod = malloc(sizeof(csc452_disk_block));
-    char *dir_name = strtok(path, "/"); 
-    long dir_start = findDirectory(&root, dir_name[0]);
+    long dir_start = findDirectory(&root, dir_name);
     csc452_directory_entry dir;
     loadDir(&dir, dir_start);    
+    
+    strcpy(dir.files[dir.nFiles].fname, fname);
+    strcpy(dir.files[dir.nFiles++].fext, ext);
+    check_errors(dir.files[dir.nFiles -1].fext);
    
-    char *token = strtok(path, ".");
-    strcpy(dir.files[dir.nFiles].fname, token);
-    token = strtok(NULL, ".");
-    strcpy(dir.files[dir.nFiles++].fext, token);
-    check_errors(dir.files[dir.nFiles - 1].fname);
-//    char *fname = strtok(token[1], ".");  
-//    check_errors(token);
-//    dir.files[dir.nFiles].fname = path; 
+    
+    FILE *disk_write_fp = fopen(".disk", "r+");
+    fseek(disk_write_fp, 0, SEEK_SET);
+    fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
 
-	return 0;
+    fseek(disk_write_fp, (++num_blocks) * BLOCK_SIZE, SEEK_SET);
+    fwrite(nod, BLOCK_SIZE, 1, disk_write_fp);
+    fclose(disk_write_fp);
+    disk_write_fp = NULL;
+    free(disk_write_fp);
+    return 0;
 }
 /* 
  * This function will search in the files of a directory pointed by 
