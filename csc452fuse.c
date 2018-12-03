@@ -192,8 +192,9 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
         }
+        //this is broken.... :(
 		//If the path does exist and is a file:
-        else if(is_dir(path, 1))
+        else if(is_dir(path, 2) && file_exists(path, path))
         {
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
