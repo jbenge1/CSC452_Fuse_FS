@@ -527,36 +527,43 @@ static int csc452_mkdir(const char *path, mode_t mode)
     char *token = strtok((char *)path, "/");
     if(strlen(token) > 8)
         return -ENAMETOOLONG;
-    //wait..... 
+    
+
     csc452_root_directory root;
     loadRoot(&root);
-    //As of right now this is insuffiecient
-    //I will need to create a 512b block as well in .disk
-    //for my directory to store files....
-    //Also I'm missing a bunch of error checks
 
-    if(&root != NULL)//address is never 0, need to change check 
+    if(dir_exists(path))
+        return -EEXIST;
+    
+    csc452_directory_entry *dir = malloc(sizeof(csc452_directory_entry));
+    dir->nFiles = 0;
+    
+
+    strcpy(root.directories[root.nDirectories++].dname, path);
+    root.directories[root.nDirectories].nStartBlock = BLOCK_SIZE * (++num_blocks);
+
+    FILE *disk_write_fp = fopen(".disk", "r+");
+    fseek(disk_write_fp, 0, SEEK_SET);
+    fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
+    
+    fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
+    fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
+    fclose(disk_write_fp);
+    disk_write_fp = NULL;
+    free(disk_write_fp);
+
+    FAT fat;
+    ret = loadFAT(&fat);
+    if(ret)
+        return -EIO;
+    short avail = getDisk(&fat);
+    if(avail == -1)
     {
-        if(dir_exists(path))
-            return -EEXIST;
-        
-        csc452_directory_entry *dir = malloc(sizeof(csc452_directory_entry));
-        dir->nFiles = 0;
-        
-
-        strcpy(root.directories[root.nDirectories++].dname, path);
-        root.directories[root.nDirectories].nStartBlock = BLOCK_SIZE * (++num_blocks);
-
-        FILE *disk_write_fp = fopen(".disk", "r+");
-        fseek(disk_write_fp, 0, SEEK_SET);
-        fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
-        
-        fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
-        fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
-        fclose(disk_write_fp);
-        disk_write_fp = NULL;
-        free(disk_write_fp);
+        writeFAT(&fat);
+        return EDQUOT;
     }
+    fat.FAT[avail] = -1;
+    ++fat.numOfAllocations;
    	return 0;
 }
 
@@ -653,6 +660,20 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     fclose(disk_write_fp);
     disk_write_fp = NULL;
     free(disk_write_fp);
+    
+    FAT fat;
+    ret = loadFAT(&fat);
+    if(ret)
+        return -EIO;
+    short avail = getDisk(&fat);
+    if(avail == -1)
+    {
+        writeFAT(&fat);
+        return EDQUOT;
+    }
+    fat.FAT[avail] = -1;
+    ++fat.numOfAllocations;
+
     return 0;
 }
 /* 
