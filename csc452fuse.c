@@ -94,9 +94,10 @@ struct csc452_disk_block
 typedef struct csc452_disk_block csc452_disk_block;
 
 #define MAX_NUM_BLOCKS ((DISK_SIZE/BLOCK_SIZE)-40)
-//The size of this spans 40 blocks of disk
+//The size of this spans 40 blocks of disk, By Cristal C.
 typedef struct FileAllocationTable{
 	short numOfAllocations;//current number of allocations
+	short lastAllocated;
 	short FAT[MAX_NUM_BLOCKS];//#max blocks in file, one for root 
 }FAT;
 
@@ -104,6 +105,7 @@ typedef struct FileAllocationTable{
  * into fatMem, assumes that it its the right size to store it
  * assumes no file will be allowed to overwrite it 
  * It returns 0 on success
+ * By Cristal C.
  */
 int loadFAT(FAT *fatMem){
 	/*The disk size is 5 MB, thus is holds up to 5*2^11 blocks, which would require the same number of 
@@ -122,7 +124,7 @@ int loadFAT(FAT *fatMem){
 	 if(ret!=1) DISK_READ_ER;
 	 return 0;
 }
-/* load FAT after updates */
+/* load FAT after updates, By Cristal C. */
 int writeFAT(FAT *fatStruct){
 	FILE* fp=fopen(DISK_FILE, "r");
 	 if(fp==NULL) DISK_NFE;
@@ -253,6 +255,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
  * the path provided is in the form /directory/file.ext.
  * This may be called with only /directory, in this case only
  * dir_name will be set
+ * By Cristal C.
  */
 int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_name){
 	//path will have form /directory/file.ext
@@ -317,6 +320,7 @@ int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_
 /*	This function will read from a file representing disk
  *	and load from it the root structure into a struct pointed by
  *	the input pointers
+ *	By Cristal C.
  */
 int loadRoot(csc452_root_directory *root){
 	 FILE* fp=fopen(DISK_FILE, "r");
@@ -333,6 +337,7 @@ int loadRoot(csc452_root_directory *root){
 /*	This function will take in a pointer to a root struct and a string with a directory
  *	name and search in the root directories for this directory, if it is not found it 
  * 	will return -1 and if found it return a a number that represents where it is in disk
+ *	By Cristal C.
  */
 long findDirectory(csc452_root_directory *root, char name[]){
 	int i;
@@ -346,7 +351,8 @@ long findDirectory(csc452_root_directory *root, char name[]){
 }
 
 /* This function will write a directory at a particular block 
-   that was modified back to the disk file*/
+   that was modified back to the disk file
+   By Cristal C.*/
 int writeDirectory(csc452_directory_entry *dir, long location){
 	FILE* fp=fopen(DISK_FILE, "r");
 	 if(fp==NULL) DISK_NFE;
@@ -360,6 +366,7 @@ int writeDirectory(csc452_directory_entry *dir, long location){
  }
 /*	This function will receive a pointer to a directory struct and a long that
  *	holds its location in .disk and then it will load the dir from .disk into the struct
+ *	By Cristal C.
  */
 int loadDir(csc452_directory_entry *dir, long location){
 	 FILE* fp=fopen(DISK_FILE, "r");
@@ -373,7 +380,9 @@ int loadDir(csc452_directory_entry *dir, long location){
 	 if(ret!=1) DISK_READ_ER;
 	 return 0;
  }
-/* This function assumes path is valid*/
+/* This function assumes path is valid
+	By Cristal C.
+*/
 int removeFileFromDirectory(const char path[]){
 	char file_name[MAX_FILENAME+1]="\0";
 	char file_ext[MAX_EXTENSION+1]="\0";
@@ -405,6 +414,7 @@ int removeFileFromDirectory(const char path[]){
  * and concat them with a period in between into a third string passed with pointer
  * This function assumes the string where the result will be stored has enough memory allocated
  * This function returns the number of characters loaded into fullName
+ * By Cristal C.
  */
 void getFullFileName(char *fileName, char *extension, char *fullName){
 	char *source=fileName;
@@ -430,6 +440,7 @@ void getFullFileName(char *fileName, char *extension, char *fullName){
 /*
  * Called whenever the contents of a directory are desired. Could be from an 'ls'
  * or could even be when a user hits TAB to do autocompletion
+ * By Cristal C.
  */
 static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
@@ -649,6 +660,7 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
  * When found the memory pointed by fsize gets set to the file's size.
  * There is an assumption that all valid files are
  * adjacent to each other (no invalid file in between.
+ * By Cristal C.
  */
 long findFile(csc452_directory_entry *directory, char fname[], char fext[], size_t *fsize,int write, size_t newSize){
 	int i;
@@ -669,6 +681,7 @@ long findFile(csc452_directory_entry *directory, char fname[], char fext[], size
  * This function will take in a pointer to a disk block and a long with the location 
  * of that block in memory and then load the block into the struct. 
  * It returns zero if successful or other if there were errors.
+ * By Cristal C.
  */
 int loadFile(csc452_disk_block *block, long location){
 	 FILE* fp=fopen(DISK_FILE, "r");
@@ -682,6 +695,10 @@ int loadFile(csc452_disk_block *block, long location){
 	 if(ret!=1) DISK_READ_ER;
 	 return 0;
  }
+/* 
+ * This function will write a block of disk into the disk file
+ * By Cristal C.
+ */
 int writeFile(csc452_disk_block *block, long location){
 	 FILE* fp=fopen(DISK_FILE, "r");
 	 if(fp==NULL) DISK_NFE;
@@ -699,6 +716,7 @@ int writeFile(csc452_disk_block *block, long location){
  * an error code if there was an issue with the path or 0 if the path was good,
  * and if good it initialized the fields pointed by the passed pointers
  * to the file's location and size
+ * By Cristal C.
  */
 int fileDoesntExists(const char *path, long *fileLoc, size_t *fileSize,int onWrite, size_t newSize){
 	//check if the format is good
@@ -731,7 +749,7 @@ int fileDoesntExists(const char *path, long *fileLoc, size_t *fileSize,int onWri
 }
 /*
  * Read size bytes from file into buf starting from offset
- *
+ * By Cristal C.
  */
 static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
 			  struct fuse_file_info *fi)
@@ -817,6 +835,7 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
  * and a file location and it deallocates all data disks that were 
  * after the file location provided for the file from the file allocation table
  * by setting them to 0 in the table
+ * By Cristal C.
  */
 void trimAfter(FAT* fat, short fileLoc){
 	short next=fat->FAT[fileLoc];
@@ -830,14 +849,27 @@ void trimAfter(FAT* fat, short fileLoc){
 }
 /* This function has a job of finding the next available disk in the FAT
  * we need to come up with a search algorithm
+ * By Cristal C.
  */
 short findADisk(FAT *fat){
-	return -1; /*We need to implement this*/
+	//serach through the FAT to find an available space
+	short i;
+	short last=fat->lastAllocated;
+	short maxBound=MAX_NUM_BLOCKS+last+1;
+	for(i=last+1;i<maxBound;i++){
+		short actualInd=i%MAX_NUM_BLOCKS;
+		if(fat->FAT[actualInd]<1){
+			fat->lastAllocated=actualInd;
+			return actualInd;//wrap around, available memory is likely next other available
+		}
+	}
+	return -1;
 }
 /*
  * This function receives a pointer to a file allocation table struct
  * and it searches in its elements for an available disk of memory
  * it returns an idex to this block or -1 if none is available
+ * By Cristal C.
  */
 short getDisk(FAT *fat){
 	if(fat->numOfAllocations < MAX_NUM_BLOCKS-1){//-1 because the first is root
@@ -851,7 +883,7 @@ short getDisk(FAT *fat){
  * and goes through each updating the file size*/
 /*
  * Write size bytes from buf into file starting from offset
- *
+ *By Cristal C.
  */
 static int csc452_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
@@ -989,7 +1021,7 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 
 /*
  * Removes a file.
- *
+ * By Cristal C.
  */
 static int csc452_unlink(const char *path)
 {
