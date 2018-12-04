@@ -514,6 +514,7 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
+short getDisk(FAT *);
 /*
  * Creates a directory. We can ignore mode since we're not dealing with
  * permissions, as long as getattr returns appropriate ones for us.
@@ -553,7 +554,7 @@ static int csc452_mkdir(const char *path, mode_t mode)
     free(disk_write_fp);
 
     FAT fat;
-    ret = loadFAT(&fat);
+    int ret = loadFAT(&fat);
     if(ret)
         return -EIO;
     short avail = getDisk(&fat);
@@ -662,7 +663,7 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     free(disk_write_fp);
     
     FAT fat;
-    ret = loadFAT(&fat);
+    int ret = loadFAT(&fat);
     if(ret)
         return -EIO;
     short avail = getDisk(&fat);
