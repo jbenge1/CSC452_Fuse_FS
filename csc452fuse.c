@@ -143,7 +143,7 @@ long int num_blocks = 0;
 void check_errors(char *str)
 {
     FILE *fp = fopen("/home/justin/errors.txt", "w");
-    fprintf(fp, str);
+    fprintf(fp,"%s\n", str);
     fclose(fp);
 }
 /**
@@ -153,7 +153,7 @@ int is_dir(const char *path, int num)
 {
     int count = 0;
     char *temp;
-    for(temp=path; *temp!='\0'; temp++)
+    for(temp=(char *)path; *temp!='\0'; temp++)
     {
         if(*temp == '/')
             count++;
@@ -188,7 +188,7 @@ int dir_exists(const char *path)
     return res;
 }
 
-long findDirectory(csc452_root_directory*, char[]);
+long findDirectory(csc452_root_directory*, char* );
 int  loadDir      (csc452_directory_entry*, long );
 
 int file_exists(const char dname[], const char *fname)
@@ -196,7 +196,7 @@ int file_exists(const char dname[], const char *fname)
     
     csc452_root_directory root;
     loadRoot(&root);
-    long dir_start = findDirectory(&root, dname);
+    long dir_start = findDirectory(&root, (char *)dname);
     csc452_directory_entry dir;
     loadDir(&dir, dir_start);    
 
@@ -220,7 +220,7 @@ int file_exists(const char dname[], const char *fname)
 static int csc452_getattr(const char *path, struct stat *stbuf)
 {
 	int res = 0;
-    check_errors(path);
+    check_errors((char *)path);
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
@@ -259,7 +259,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
  */
 int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_name){
 	//path will have form /directory/file.ext
-	char *nav=path;
+	char *nav=(char *)path;
 	char *writeOn;//this will be where I will write
 	writeOn=dir_name;
 	int length=1;
@@ -339,11 +339,13 @@ int loadRoot(csc452_root_directory *root){
  * 	will return -1 and if found it return a a number that represents where it is in disk
  *	By Cristal C.
  */
-long findDirectory(csc452_root_directory *root, char name[]){
+long findDirectory(csc452_root_directory *root, char *name){
 	int i;
 	int numDirs=MAX_DIRS_IN_ROOT;
 	for(i=0;i<numDirs;i++){
-		if(!strcmp(root->directories[i].dname, name)){//strcmp returns zero if equal
+		//some of these may be uninitialized, so special case it
+		if(root->directories[i].dname==NULL) continue;
+		if(!strcmp((char *)(root->directories[i].dname), name)){//strcmp returns zero if equal
 			return root->directories[i].nStartBlock;
 		}
 	}
@@ -522,7 +524,7 @@ static int csc452_mkdir(const char *path, mode_t mode)
   
     if(is_dir(path, 2))
         return -EPERM;
-    char *token = strtok(path, "/");
+    char *token = strtok((char *)path, "/");
     if(strlen(token) > 8)
         return -ENAMETOOLONG;
     //wait..... 
@@ -533,7 +535,7 @@ static int csc452_mkdir(const char *path, mode_t mode)
     //for my directory to store files....
     //Also I'm missing a bunch of error checks
 
-    if(&root != NULL)
+    if(&root != NULL)//address is never 0, need to change check 
     {
         if(dir_exists(path))
             return -EEXIST;
@@ -579,14 +581,14 @@ static int csc452_rmdir(const char *path)
     {
         if(strcmp(path, root.directories[i].dname) == 0)
         {
-            long start = findDirectory(&root, path);
+            long start = findDirectory(&root, (char *)path);
             csc452_directory_entry dir;
             loadDir(&dir, start);
 
             if(dir.nFiles-1 == 0)
             {
                 int j;
-                for(int j=i;j<root.nDirectories-1;j++)
+                for(j=i;j<root.nDirectories-1;j++)
                 {
                     root.directories[j] = root.directories[j+1];
                 }
@@ -619,7 +621,7 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     if(!is_dir(path, 2))
         return -EPERM; 
     
-    char *dname = strtok(path, "/");
+    char *dname = strtok((char*)path, "/");
     char *temp  = strtok(NULL, "/");
     char *fname = strtok(temp, "."); 
     char *ext   = strtok(NULL, ".");
@@ -993,7 +995,7 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 		}			
 		if((size-allWrites)<=BLOCK_SIZE){
 			//this is the last block that needs to be written into
-			memcpy(data.data,buf+allWrites, size-allWrites);
+			memcpy(data.data+offset+allWrites,buf+allWrites, size-allWrites);
 			//set the rest of this block to zero
 			size_t nextEl=size-allWrites+1;
 			size_t i;
@@ -1007,7 +1009,7 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 			trimAfter(&fat, fileLoc);
 		}else{
 			//the whole block needs to be written into
-			memcpy(buf+allWrites, data.data,BLOCK_SIZE);
+			memcpy(data.data+offset+allWrites, buf+allWrites,BLOCK_SIZE);
 			allWrites=allWrites+BLOCK_SIZE;
 		}
 		writeFile(&data, fileLoc);
