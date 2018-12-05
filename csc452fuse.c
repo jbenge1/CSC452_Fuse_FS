@@ -118,8 +118,8 @@ int loadFAT(FAT *fatMem){
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long location=MAX_NUM_BLOCKS;//the one after the last file 
-	 long inFileLoc=location*BLOCK_SIZE;
-	 fseek(fp,inFileLoc,SEEK_SET);
+	// long inFileLoc=location*BLOCK_SIZE;
+	 fseek(fp,location,SEEK_SET);
 	 int ret =fread(fatMem, BLOCK_SIZE*40, 1, fp);
 	 fclose(fp);
 	 if(ret!=1) DISK_READ_ER;
@@ -149,6 +149,7 @@ void check_errors(char *str)
 }
 /**
  * let's just count up the number of slashes?
+ *
  */
 int is_dir(const char *path, int num) 
 {
@@ -159,10 +160,9 @@ int is_dir(const char *path, int num)
         if(*temp == '/')
             count++;
     }
-//    fprintf(fp, "%d", count);
-//    fclose(fp);
     return count >= num;
 }
+
 int is_file(const char *path)
 {
     return 0;
@@ -179,13 +179,16 @@ int dir_exists(const char *path)
     for(i=0;i<root.nDirectories;i++)
     {
         char *temp = root.directories[i].dname;
-        if(strcmp(temp, path) == 0)
+        char *token = strtok((char *)path, "/");
+        if(strcmp(temp, token) == 0)
             res = 1;
        
         temp = NULL;
         free(temp);
     }
-
+//    FILE *fp = fopen("/home/justin/errors.txt", "w");
+//    fprintf(fp, "%d", res);
+//    fclose(fp); 
     return res;
 }
 
@@ -221,7 +224,6 @@ int file_exists(const char dname[], const char *fname)
 static int csc452_getattr(const char *path, struct stat *stbuf)
 {
 	int res = 0;
-    //check_errors((char *)path);
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
@@ -556,7 +558,6 @@ static int csc452_mkdir(const char *path, mode_t mode)
     
 	sscanf(path, "/%[^/]/%[^.].%s", dir_name, file_name, file_ext);
 	dir_name[strlen(dir_name)] = '\0';
-    check_errors(dir_name);
 	//wee need to add this dir to the root so wee must find out if the root can have one more in it
 	if(root.nDirectories>=MAX_DIRS_IN_ROOT) return -ENOSPC;
 	
@@ -586,6 +587,7 @@ static int csc452_mkdir(const char *path, mode_t mode)
         return EDQUOT;
     }
     root.directories[available_dir].nStartBlock = (long)avail;//this will be the num of block and not the position
+    root.nDirectories++;
 	//write changes to the root
 	writeRoot(&root);
 	//now I need to add the new directory's block to the file
@@ -645,7 +647,8 @@ static int csc452_rmdir(const char *path)
 			
 			//remove directory from root
 			root.directories[i].nStartBlock=0;
-			//remove from FAT
+			root.nDirectories--;
+            //remove from FAT
 			FAT fat;
 			int ret = loadFAT(&fat);
 			if(ret) return -EIO;
@@ -712,7 +715,6 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     
     strcpy(dir.files[dir.nFiles].fname, fname);
     strcpy(dir.files[dir.nFiles++].fext, ext);
-    //check_errors(dir.files[dir.nFiles -1].fext);
    
     
     FILE *disk_write_fp = fopen(".disk", "r+");
