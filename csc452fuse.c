@@ -623,16 +623,40 @@ static int csc452_rmdir(const char *path)
     if(!is_dir(path, 1))
         return -ENOTDIR;
     //now lets actually find the directory
+	char file_name[MAX_FILENAME+1]="\0";
+	char file_ext[MAX_EXTENSION+1]="\0";
+	char dir_name[MAX_FILENAME+1]="\0";
+	sscanf(path, "/%[^/]/%[^.].%s", dir_name, file_name, file_ext);
     int i;
     for(i=0;i<root.nDirectories;i++)
     {
-        if(strcmp(path, root.directories[i].dname) == 0)
+        if(strcmp(dir_name, root.directories[i].dname) == 0)
         {
-            long start = findDirectory(&root, (char *)path);
+            long start = root.directories[i].nStartBlock;
             csc452_directory_entry dir;
             loadDir(&dir, start);
-
-            if(dir.nFiles-1 == 0)
+			
+			//is dir empty?
+			if(dir.nFiles!=0) return -ENOTEMPTY;
+			//proceed with removal
+			
+			//need to remove directory from file, from FATand from root
+			
+			//remove directory from root
+			root.directories[i].nStartBlock=0;
+			//remove from FAT
+			FAT fat;
+			int ret = loadFAT(&fat);
+			if(ret) return -EIO;
+			//a directory is a single block of mem and does not follow another
+			fat.FAT[start]=-2;
+			fat.numOfAllocations=fat.numOfAllocations-1;
+			//write this back
+			writeFAT(&fat);
+			writeRoot(&root);
+			return 0;
+			
+          /*  if(dir.nFiles-1 == 0)// what is this?//shifting code
             {
                 int j;
                 for(j=i;j<root.nDirectories-1;j++)
@@ -643,7 +667,7 @@ static int csc452_rmdir(const char *path)
                 return 0;
             }
             else
-                return -ENOTEMPTY;
+                return -ENOTEMPTY;*/
         }
     }
     
