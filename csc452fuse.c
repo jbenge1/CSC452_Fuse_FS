@@ -113,7 +113,7 @@ int loadFAT(FAT *fatMem){
 	 *blocks of memory. Therefore the Max number of blocks that can be used will be 5*2^11-40, making the the size of
 	 *the fat =to 39.87 blocks, which gives me just enough space to add a short containing the number of blocks currently allocated
 	 */
-	 FILE* fp=fopen(DISK_FILE, "r");
+	 FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long location=MAX_NUM_BLOCKS;//the one after the last file 
@@ -126,7 +126,7 @@ int loadFAT(FAT *fatMem){
 }
 /* load FAT after updates, By Cristal C. */
 int writeFAT(FAT *fatStruct){
-	FILE* fp=fopen(DISK_FILE, "r");
+	FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long location=MAX_NUM_BLOCKS;//the one after the last file 
@@ -366,7 +366,7 @@ long findDirectory(csc452_root_directory *root, char *name){
    that was modified back to the disk file
    By Cristal C.*/
 int writeDirectory(csc452_directory_entry *dir, long location){
-	FILE* fp=fopen(DISK_FILE, "r");
+	FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
@@ -381,7 +381,7 @@ int writeDirectory(csc452_directory_entry *dir, long location){
  *	By Cristal C.
  */
 int loadDir(csc452_directory_entry *dir, long location){
-	 FILE* fp=fopen(DISK_FILE, "r");
+	 FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
@@ -770,7 +770,7 @@ long findFile(csc452_directory_entry *directory, char fname[], char fext[], size
  * By Cristal C.
  */
 int loadFile(csc452_disk_block *block, long location){
-	 FILE* fp=fopen(DISK_FILE, "r");
+	 FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
@@ -786,7 +786,7 @@ int loadFile(csc452_disk_block *block, long location){
  * By Cristal C.
  */
 int writeFile(csc452_disk_block *block, long location){
-	 FILE* fp=fopen(DISK_FILE, "r");
+	 FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
