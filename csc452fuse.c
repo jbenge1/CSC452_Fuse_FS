@@ -744,7 +744,7 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     long dir_start = findDirectory(&root, dir_name);
     csc452_directory_entry dir;
     loadDir(&dir, dir_start);    
-    if(dir.nFiles >= MAXF_FILES_IN_DIR)
+    if(dir.nFiles >= MAX_FILES_IN_DIR)
        return -ENOSPC; 
     strcpy(dir.files[dir.nFiles].fname, fname);
     strcpy(dir.files[dir.nFiles++].fext, ext);
