@@ -99,6 +99,7 @@ typedef struct FileAllocationTable{
 	short numOfAllocations;//current number of allocations
 	short lastAllocated;
 	short FAT[MAX_NUM_BLOCKS];//#max blocks in file, one for root 
+    char  padding[BLOCK_SIZE * 40];
 }FAT;
 
 /*This function will load the FAT from the disk file
@@ -113,7 +114,7 @@ int loadFAT(FAT *fatMem){
 	 *blocks of memory. Therefore the Max number of blocks that can be used will be 5*2^11-40, making the the size of
 	 *the fat =to 39.87 blocks, which gives me just enough space to add a short containing the number of blocks currently allocated
 	 */
-	 FILE* fp=fopen(DISK_FILE, "rb");
+	 FILE* fp=fopen(DISK_FILE, "r");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long location=MAX_NUM_BLOCKS;//the one after the last file 
@@ -126,7 +127,7 @@ int loadFAT(FAT *fatMem){
 }
 /* load FAT after updates, By Cristal C. */
 int writeFAT(FAT *fatStruct){
-	FILE* fp=fopen(DISK_FILE, "rb");
+	FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long location=MAX_NUM_BLOCKS;//the one after the last file 
@@ -323,7 +324,7 @@ int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_
  *	By Cristal C.
  */
 int loadRoot(csc452_root_directory *root){
-	 FILE* fp=fopen(DISK_FILE, "rb");
+	 FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 fseek(fp,0,SEEK_SET);
@@ -334,7 +335,7 @@ int loadRoot(csc452_root_directory *root){
 	 return 0;
  }
 int writeRoot(csc452_root_directory *root){
-	 FILE* fp=fopen(DISK_FILE, "rb");
+	 FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 fseek(fp,0,SEEK_SET);
@@ -366,7 +367,7 @@ long findDirectory(csc452_root_directory *root, char *name){
    that was modified back to the disk file
    By Cristal C.*/
 int writeDirectory(csc452_directory_entry *dir, long location){
-	FILE* fp=fopen(DISK_FILE, "rb");
+	FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
@@ -381,7 +382,7 @@ int writeDirectory(csc452_directory_entry *dir, long location){
  *	By Cristal C.
  */
 int loadDir(csc452_directory_entry *dir, long location){
-	 FILE* fp=fopen(DISK_FILE, "rb");
+	 FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
@@ -591,19 +592,19 @@ static int csc452_mkdir(const char *path, mode_t mode)
 	writeDirectory(dir, avail);
 	
 	
-   /* FILE *disk_write_fp = fopen(".disk", "r+");
-    fseek(disk_write_fp, 0, SEEK_SET);
-    fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
+//    FILE *disk_write_fp = fopen(".disk", "r+");
+//    fseek(disk_write_fp, 0, SEEK_SET);
+//    fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
     
-    fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
-    fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
-    fclose(disk_write_fp);
-    disk_write_fp = NULL;
-    free(disk_write_fp);
-	*/
+//    fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
+//    fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
+//    fclose(disk_write_fp);
+//    disk_write_fp = NULL;
+//    free(disk_write_fp);
+	
    
     fat.FAT[avail] = -1;//end of file, num of allocations increased in getDisk
-	//write new FAT
+    // write new FAT
 	writeFAT(&fat);
    	return 0;
 }
@@ -770,7 +771,7 @@ long findFile(csc452_directory_entry *directory, char fname[], char fext[], size
  * By Cristal C.
  */
 int loadFile(csc452_disk_block *block, long location){
-	 FILE* fp=fopen(DISK_FILE, "rb");
+	 FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
@@ -786,7 +787,7 @@ int loadFile(csc452_disk_block *block, long location){
  * By Cristal C.
  */
 int writeFile(csc452_disk_block *block, long location){
-	 FILE* fp=fopen(DISK_FILE, "rb");
+	 FILE* fp=fopen(DISK_FILE, "r+");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 long inFileLoc=location*BLOCK_SIZE;
