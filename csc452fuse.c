@@ -7,6 +7,7 @@
  *
  *
  * @author : Justin Benge <justinbng36@gmail.com>
+ *         	 Cristal Castellanos net cristalc
  * Date    : 16 Novermber, 2018
  * 
 */
@@ -177,8 +178,9 @@ int dir_exists(const char *path)
     loadRoot(&root);
     int res = 0; 
     int i;
-    for(i=0;i<root.nDirectories;i++)
+    for(i=0;i<MAX_DIRS_IN_ROOT;i++)
     {
+		if(root.directories[i].nStartBlock==0) continue;
         char *temp = root.directories[i].dname;
         //check_errors(path);
         if(strcmp(temp, path) == 0)
@@ -206,8 +208,9 @@ int file_exists(const char dname[], const char *fname)
     loadDir(&dir, dir_start);    
 
     int i;
-    for(i=0;i<dir.nFiles;i++)
+    for(i=0;i<MAX_FILES_IN_DIR;i++)
     {
+		if(dir.files[i].nStartBlock==0)continue;//non active spot
        if(strcmp(fname, dir.files[i].fname) == 0)
            return 1; 
     }
@@ -376,7 +379,7 @@ long findDirectory(csc452_root_directory *root, char *name){
 	int numDirs=MAX_DIRS_IN_ROOT;
 	for(i=0;i<numDirs;i++){
 		//some of these may be uninitialized, so special case it
-		if(root->directories[i].dname==NULL) continue;
+		if(root->directories[i].nStartBlock==0) continue;
 		if(!strcmp((char *)(root->directories[i].dname), name)){//strcmp returns zero if equal
 			return root->directories[i].nStartBlock;
 		}
@@ -650,8 +653,9 @@ static int csc452_rmdir(const char *path)
 	char dir_name[MAX_FILENAME+1]="\0";
 	sscanf(path, "/%[^/]/%[^.].%s", dir_name, file_name, file_ext);
     int i;
-    for(i=0;i<root.nDirectories;i++)
+    for(i=0;i<MAX_DIRS_IN_ROOT;i++)
     {
+		if(root.directories[i].nStartBlock==0) continue;//skip over deallocated blocks
         if(strcmp(dir_name, root.directories[i].dname) == 0)
         {
             long start = root.directories[i].nStartBlock;
