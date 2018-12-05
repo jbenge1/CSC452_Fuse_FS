@@ -476,9 +476,6 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	if(ret) return -EIO; //file handle invalid
 	if (strcmp(path, "/") != 0) {
 		//this is not the root so it must be a directory in the root 
-		/*filler(buf, ".", NULL,0);
-		filler(buf, "..", NULL, 0);*/
-		//filler format 
 		//filler(void *buff, char *name, struct stat *stbuff,off_t offf)
 		//list all files in this directory find this directory in the root
 		long location=findDirectory(&root, dir_name);
@@ -488,10 +485,11 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		ret=loadDir(&thisDir, location);
 		if(ret) return -EIO;
 		//get all files from disk struct
-		int i,numFiles=thisDir.nFiles;
+		int i,numFiles=MAX_FILES_IN_DIR;
 		
 		for(i=0; i<numFiles;i++){
-			//assume within a directory are all next to each other and thay nfile is updated to current num of files
+			//directories are not necessarly next to each other
+			if(thisDir.files[i].nStartBlock==0) continue;//zero is reserved for the root
 			char fullName[MAX_FILENAME+MAX_EXTENSION+2];
 			getFullFileName(thisDir.files[i].fname,thisDir.files[i].fext,&fullName[0]);
 			filler(buf, fullName, NULL, 0);
@@ -501,8 +499,9 @@ static int csc452_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		//For the root, all of its child directories should be added
 		//there is an array of directory structs inside the root struct
 		int i=0;
-		int numOfDirs=root.nDirectories;
+		int numOfDirs=MAX_DIRS_IN_ROOT;
 		for(i=0;i<numOfDirs;i++){
+			if(root.directories[i].nStartBlock==0) continue;//0 is free or root, but root should not be a directory
 			struct csc452_directory currDir=root.directories[i];
 			//add all directories to the buff
 			//assume all valid directories exists sequentially in array
