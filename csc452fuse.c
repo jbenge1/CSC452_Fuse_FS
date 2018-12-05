@@ -153,6 +153,7 @@ void check_errors(char *str)
  */
 int is_dir(const char *path, int num) 
 {
+	//check_errors(path);
     int count = 0;
     char *temp;
     for(temp=(char *)path; *temp!='\0'; temp++)
@@ -163,10 +164,10 @@ int is_dir(const char *path, int num)
     return count >= num;
 }
 
-int is_file(const char *path)
+/*int is_file(const char *path)
 {
     return 0;
-}
+}*/
 
 int loadRoot(csc452_root_directory*);
 
@@ -179,8 +180,8 @@ int dir_exists(const char *path)
     for(i=0;i<root.nDirectories;i++)
     {
         char *temp = root.directories[i].dname;
-        char *token = strtok((char *)path, "/");
-        if(strcmp(temp, token) == 0)
+        //check_errors(path);
+        if(strcmp(temp, path) == 0)
             res = 1;
        
         temp = NULL;
@@ -224,20 +225,32 @@ int file_exists(const char dname[], const char *fname)
 static int csc452_getattr(const char *path, struct stat *stbuf)
 {
 	int res = 0;
+	char filename[MAX_FILENAME+1]="\0";
+	char extension[MAX_EXTENSION+1]="\0";
+	char directory[MAX_FILENAME+1]="\0";
+    sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
+    
+    char temp_dir[strlen(directory)];
+    if(filename[0] != '\0')
+    {
+        strcpy(temp_dir, directory);
+        directory[0] = '\n';
+    }
+
+
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
 	} else  {
 		
 		//If the path does exist and is a directory:
-        if (is_dir(path,1) && dir_exists(path)) 
+        if (/*is_dir(path,1)*/directory[0] != '\n' && dir_exists(directory)) 
         {
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
         }
-        //this is broken.... :(
 		//If the path does exist and is a file:
-        else if(is_dir(path, 2))
+        else if(filename[0] != '\0' && file_exists(temp_dir, filename))
         {
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
@@ -689,7 +702,8 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
 {
 	(void) mode;
     (void) dev;
-	
+
+//    check_errors(path);    
     csc452_root_directory root;
     loadRoot(&root);
     if(!is_dir(path, 2))
