@@ -230,11 +230,13 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 	char directory[MAX_FILENAME+1]="\0";
     sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
     
+    check_errors(path);
     char temp_dir[strlen(directory)];
     if(filename[0] != '\0')
     {
+        check_errors(temp_dir);
         strcpy(temp_dir, directory);
-        directory[0] = '\n';
+        directory[0] = '\0';
     }
 
 
@@ -244,7 +246,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 	} else  {
 		
 		//If the path does exist and is a directory:
-        if (/*is_dir(path,1)*/directory[0] != '\n' && dir_exists(directory)) 
+        if (is_dir(path,1) && dir_exists(directory)) 
         {
             stbuf->st_mode = S_IFDIR | 0755;
             stbuf->st_nlink = 2;
@@ -252,13 +254,17 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
 		//If the path does exist and is a file:
         else if(filename[0] != '\0' && file_exists(temp_dir, filename))
         {
+            check_errors("HERE2");
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
             stbuf->st_size = 512; //file size
         }	
 		//Else return that path doesn't exist
         else
+        {   
+            check_errors("HERE3");
     		res = -ENOENT;
+        }
 
 	}
 	return res;
@@ -704,8 +710,16 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     (void) dev;
 
 //    check_errors(path);    
+    
     csc452_root_directory root;
     loadRoot(&root);
+    char filename[MAX_FILENAME+1]="\0";
+    char extension[MAX_EXTENSION+1]="\0";
+    char directory[MAX_FILENAME+1]="\0";
+    sscanf(path, "/%[^/]/%[^.].%s", directory, filename, extension);
+
+    if(!dir_exists(directory))
+        return -ENOENT;
     if(!is_dir(path, 2))
         return -EPERM; 
     
@@ -726,7 +740,8 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     long dir_start = findDirectory(&root, dir_name);
     csc452_directory_entry dir;
     loadDir(&dir, dir_start);    
-    
+    if(dir.nFiles >= MAXF_FILES_IN_DIR)
+       return -ENOSPC; 
     strcpy(dir.files[dir.nFiles].fname, fname);
     strcpy(dir.files[dir.nFiles++].fext, ext);
    
