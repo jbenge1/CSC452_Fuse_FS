@@ -568,7 +568,6 @@ static int csc452_mkdir(const char *path, mode_t mode)
    	return 0;
 }
 
-
 /*
  * Removes a directory (must be empty)
  *
@@ -610,7 +609,6 @@ static int csc452_rmdir(const char *path)
     
 	return -ENOENT;
 }
-
 /*
  * Does the actual creation of a file. Mode and dev can be ignored.
  *
@@ -861,15 +859,13 @@ static int csc452_read(const char *path, char *buf, size_t size, off_t offset,
  * by setting them to 0 in the table
  * By Cristal C.
  */
-void trimAfter(FAT* fat, short fileLoc){
+void trimFrom(FAT* fat, short fileLoc){
+	if(fileLoc==-1) return;
 	short next=fat->FAT[fileLoc];
-	if(next<1){//-1 sentinel for last file, 0 initialized value maybe.
-		return;
-	}
-	fat->FAT[fileLoc]=-1;//setting it to 0
+	fat->FAT[fileLoc]=-2;//setting it available
 	//decrement allocation
 	fat->numOfAllocations=fat->numOfAllocations-1;
-	trimAfter(fat, next);
+	trimFrom(fat, next);
 }
 /* This function has a job of finding the next available disk in the FAT
  * we need to come up with a search algorithm
@@ -882,8 +878,11 @@ short findADisk(FAT *fat){
 	short maxBound=MAX_NUM_BLOCKS+last+1;
 	for(i=last+1;i<maxBound;i++){
 		short actualInd=i%MAX_NUM_BLOCKS;
-		if(fat->FAT[actualInd]<1){
+		if(actualInd==0)continue;//skip over root space
+		if(fat->FAT[actualInd]==-2 || fat->FAT[actualInd]==0){
+			//no node should have its next element be the root, so this works for the uninitialized FAT
 			fat->lastAllocated=actualInd;
+			fat->numOfAllocations=fat->numOfAllocations+1;
 			return actualInd;//wrap around, available memory is likely next other available
 		}
 	}
@@ -987,7 +986,10 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 			data.data[i]=0;
 		}
 		//need to deallocate all next files from before
-		trimAfter(&fat, fileLoc);
+		trimFrom(&fat, fileLoc);
+		//keep the current as EOF
+		fat.FAT[fileLoc]=-1;
+		fat.numOfAllocations=fat.numOfAllocations+1;
 	}
 	writeFile(&data, fileLoc);//update first block in file
 	//now need to determine where to write next
@@ -1004,7 +1006,6 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 			}
 			fat.FAT[fileLoc]=available;
 			fat.FAT[available]=-1;//this is the current last disk
-			fat.numOfAllocations=fat.numOfAllocations+1;
 			newfileLoc=available;
 		}
 		fileLoc=newfileLoc;
@@ -1028,7 +1029,10 @@ static int csc452_write(const char *path, const char *buf, size_t size,
 			//write this disk to disk o update it
 			//if there were more blocks allocated after this one, 
 			//they should be removed from the fat
-			trimAfter(&fat, fileLoc);
+			trimFrom(&fat, fileLoc);
+			//set this to end of file and keep it
+			fat.FAT[fileLoc]=-1;
+			fat.numOfAllocations=fat.numOfAllocations+1;
 		}else{
 			//the whole block needs to be written into
 			memcpy(data.data+offset+allWrites, buf+allWrites,BLOCK_SIZE);
@@ -1063,11 +1067,9 @@ static int csc452_unlink(const char *path)
 		FAT fat;
 		int ret=loadFAT(&fat);
 		if(ret) return -EIO;
-		//now remove all the blocks from this file from the FAT
-		trimAfter(&fat, fileLocOr);
-		//remove this block from the file allocation table
-		fat.FAT[fileLocOr]=-1;//in the case of no consecutive blocks
-		fat.numOfAllocations=fat.numOfAllocations-1;
+		//now remove all the blocks from this file after itself from the FAT
+		trimFrom(&fat, fileLocOr);
+		
 		ret=removeFileFromDirectory(path);//update Dir
 		if(ret) return -EIO;
 		ret=writeFAT(&fat);//update FAT
