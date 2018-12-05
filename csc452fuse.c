@@ -220,7 +220,7 @@ int file_exists(const char dname[], const char *fname)
 static int csc452_getattr(const char *path, struct stat *stbuf)
 {
 	int res = 0;
-    check_errors((char *)path);
+    //check_errors((char *)path);
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
@@ -234,7 +234,7 @@ static int csc452_getattr(const char *path, struct stat *stbuf)
         }
         //this is broken.... :(
 		//If the path does exist and is a file:
-        else if(is_dir(path, 2) && file_exists(path, path))
+        else if(is_dir(path, 2))
         {
             stbuf->st_mode = S_IFREG | 0666;
             stbuf->st_nlink = 2;
@@ -551,9 +551,11 @@ static int csc452_mkdir(const char *path, mode_t mode)
 	//Wee need to add the name of the directory and not the path on name, it will only hold 9 chars
 	char file_name[MAX_FILENAME+1]="\0";
 	char file_ext[MAX_EXTENSION+1]="\0";
-	char dir_name[MAX_FILENAME+1]="\0";
+	char dir_name[MAX_FILENAME+1];
+    
 	sscanf(path, "/%[^/]/%[^.].%s", dir_name, file_name, file_ext);
-	
+	dir_name[strlen(dir_name)] = '\0';
+    check_errors(dir_name);
 	//wee need to add this dir to the root so wee must find out if the root can have one more in it
 	if(root.nDirectories>=MAX_DIRS_IN_ROOT) return -ENOSPC;
 	
@@ -566,10 +568,8 @@ static int csc452_mkdir(const char *path, mode_t mode)
 			break;
 		}
 	}
-	if(available_dir==0){
-		//some error with tcounting
-		return -ENOSPC;
-	}
+//	if(available_dir==0)
+//		return -ENOSPC;
 	/* root changes */
 	strcpy(root.directories[available_dir].dname, dir_name);
     //strcpy(root.directories[root.nDirectories++].dname, path);
@@ -711,7 +711,7 @@ static int csc452_mknod(const char *path, mode_t mode, dev_t dev)
     
     strcpy(dir.files[dir.nFiles].fname, fname);
     strcpy(dir.files[dir.nFiles++].fext, ext);
-    check_errors(dir.files[dir.nFiles -1].fext);
+    //check_errors(dir.files[dir.nFiles -1].fext);
    
     
     FILE *disk_write_fp = fopen(".disk", "r+");
