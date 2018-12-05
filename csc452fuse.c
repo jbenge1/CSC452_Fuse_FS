@@ -323,7 +323,7 @@ int extractFromPath(const char path[],char *file_name, char *file_ext,char *dir_
  *	By Cristal C.
  */
 int loadRoot(csc452_root_directory *root){
-	 FILE* fp=fopen(DISK_FILE, "r");
+	 FILE* fp=fopen(DISK_FILE, "rb");
 	 if(fp==NULL) DISK_NFE;
 	 //int fseek(FILE *stream, long int offset, int whence)
 	 fseek(fp,0,SEEK_SET);
@@ -331,6 +331,16 @@ int loadRoot(csc452_root_directory *root){
 	 int ret =fread(root, BLOCK_SIZE, 1, fp);
 	 fclose(fp);
 	 if(ret!=1) DISK_READ_ER;
+	 return 0;
+ }
+int writeRoot(csc452_root_directory *root){
+	 FILE* fp=fopen(DISK_FILE, "rb");
+	 if(fp==NULL) DISK_NFE;
+	 //int fseek(FILE *stream, long int offset, int whence)
+	 fseek(fp,0,SEEK_SET);
+	 //size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+	 fwrite(root, BLOCK_SIZE, 1, fp);
+	 fclose(fp);
 	 return 0;
  }
 
@@ -538,21 +548,33 @@ static int csc452_mkdir(const char *path, mode_t mode)
     csc452_directory_entry *dir = malloc(sizeof(csc452_directory_entry));
     dir->nFiles = 0;
     
-
-    strcpy(root.directories[root.nDirectories++].dname, path);
-    root.directories[root.nDirectories].nStartBlock = BLOCK_SIZE * (++num_blocks);
-
-    FILE *disk_write_fp = fopen(".disk", "r+");
-    fseek(disk_write_fp, 0, SEEK_SET);
-    fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
-    
-    fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
-    fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
-    fclose(disk_write_fp);
-    disk_write_fp = NULL;
-    free(disk_write_fp);
-
-    FAT fat;
+	//Wee need to add the name of the directory and not the path on name, it will only hold 9 chars
+	char file_name[MAX_FILENAME+1]="\0";
+	char file_ext[MAX_EXTENSION+1]="\0";
+	char dir_name[MAX_FILENAME+1]="\0";
+	sscanf(path, "/%[^/]/%[^.].%s", dir_name, file_name, file_ext);
+	
+	//wee need to add this dir to the root so wee must find out if the root can have one more in it
+	if(root.nDirectories>=MAX_DIRS_IN_ROOT) return -ENOSPC;
+	
+	int i;
+	int available_dir=0;
+	for(i=0;i<MAX_DIRS_IN_ROOT;i++){
+		//look for an available space
+		if(root.directories[i].nStartBlock==0){//0 should only be for root
+			available_dir=i;
+			break;
+		}
+	}
+	if(available_dir==0){
+		//some error with tcounting
+		return -ENOSPC;
+	}
+	/* root changes */
+	strcpy(root.directories[available_dir].dname, dir_name);
+    //strcpy(root.directories[root.nDirectories++].dname, path);
+	//get a disk for it to live at 
+	FAT fat;
     int ret = loadFAT(&fat);
     if(ret)
         return -EIO;
@@ -562,8 +584,27 @@ static int csc452_mkdir(const char *path, mode_t mode)
         writeFAT(&fat);
         return EDQUOT;
     }
-    fat.FAT[avail] = -1;
-    ++fat.numOfAllocations;
+    root.directories[available_dir].nStartBlock = (long)avail;//this will be the num of block and not the position
+	//write changes to the root
+	writeRoot(&root);
+	//now I need to add the new directory's block to the file
+	writeDirectory(dir, avail);
+	
+	
+   /* FILE *disk_write_fp = fopen(".disk", "r+");
+    fseek(disk_write_fp, 0, SEEK_SET);
+    fwrite(&root, BLOCK_SIZE, 1, disk_write_fp);
+    
+    fseek(disk_write_fp, num_blocks * BLOCK_SIZE, SEEK_SET);
+    fwrite(dir, BLOCK_SIZE, 1, disk_write_fp);
+    fclose(disk_write_fp);
+    disk_write_fp = NULL;
+    free(disk_write_fp);
+	*/
+   
+    fat.FAT[avail] = -1;//end of file, num of allocations increased in getDisk
+	//write new FAT
+	writeFAT(&fat);
    	return 0;
 }
 
